@@ -1,0 +1,361 @@
+/* LAMP Manager - Flat Design (Tailwind-inspired) */
+
+/* Ventana principal */
+window {
+    background-color: #f8fafc;
+}
+
+/* Header */
+.header-title {
+    font-size: 24px;
+    font-weight: 700;
+    color: #0f172a;
+}
+
+/* Cards y Frames */
+.card {
+    background-color: #ffffff;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+    padding: 16px;
+    margin: 6px 0;
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.card:hover {
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    border-color: #cbd5e1;
+}
+
+/* Service rows */
+.service-row {
+    background-color: #ffffff;
+    border-radius: 8px;
+    padding: 14px;
+    margin: 6px 0;
+    border: 2px solid #e2e8f0;
+    border-left-width: 4px;
+    transition: all 0.15s ease;
+}
+
+.service-row.active {
+    border-left-color: #10b981;
+    background-color: #f0fdf4;
+}
+
+.service-row.inactive {
+    border-left-color: #ef4444;
+    background-color: #fef2f2;
+}
+
+.service-row.warning {
+    border-left-color: #f59e0b;
+    background-color: #fffbeb;
+}
+
+.service-row:hover {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+/* Status badges */
+.status-badge {
+    font-weight: 600;
+    padding: 4px 14px;
+    border-radius: 9999px;
+    font-size: 12px;
+}
+
+.status-active {
+    background-color: #dcfce7;
+    color: #166534;
+}
+
+.status-inactive {
+    background-color: #fee2e2;
+    color: #991b1b;
+}
+
+.status-unknown {
+    background-color: #fef3c7;
+    color: #92400e;
+}
+
+/* Botones - Flat Design */
+button {
+    border-radius: 8px;
+    padding: 10px 18px;
+    font-weight: 600;
+    border: 2px solid transparent;
+    transition: all 0.15s ease;
+}
+
+button:hover {
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+.suggested-action {
+    background-color: #3b82f6;
+    color: #ffffff;
+    border: none;
+}
+
+.suggested-action:hover {
+    background-color: #2563eb;
+}
+
+.suggested-action:active {
+    background-color: #1d4ed8;
+}
+
+.destructive-action {
+    background-color: #ef4444;
+    color: #ffffff;
+    border: none;
+}
+
+.destructive-action:hover {
+    background-color: #dc2626;
+}
+
+.destructive-action:active {
+    background-color: #b91c1c;
+}
+
+/* Tablas y Grids */
+grid {
+    /* Estilos aplicados via GTK properties */
+}
+
+grid > * {
+    padding: 8px;
+}
+
+/* Tabs - Flat Design */
+notebook > header {
+    background-color: #ffffff;
+    border-bottom: 2px solid #e5e7eb;
+}
+
+notebook > header > tabs > tab {
+    padding: 14px 26px;
+    font-weight: 500;
+    color: #64748b;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s ease;
+}
+
+notebook > header > tabs > tab:hover {
+    color: #475569;
+    background-color: #f8fafc;
+}
+
+notebook > header > tabs > tab:checked {
+    color: #3b82f6;
+    border-bottom-color: #3b82f6;
+    background-color: #eff6ff;
+    font-weight: 600;
+}
+
+/* ListBox */
+list {
+    background-color: transparent;
+    border: none;
+}
+
+list > row {
+    background-color: #ffffff;
+    border-radius: 8px;
+    margin: 5px 0;
+    padding: 10px;
+    border: 1px solid #e5e7eb;
+    transition: all 0.15s ease;
+}
+
+list > row:hover {
+    background-color: #f8fafc;
+    border-color: #cbd5e1;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+/* ProgressBar - Flat Design */
+progressbar {
+    border-radius: 9999px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+progressbar > trough {
+    background-color: #e5e7eb;
+    border-radius: 9999px;
+    min-height: 22px;
+}
+
+progressbar > trough > progress {
+    background-color: #3b82f6;
+    border-radius: 9999px;
+}
+
+/* Entry fields - Flat Design */
+entry {
+    border-radius: 8px;
+    padding: 10px 14px;
+    border: 2px solid #e5e7eb;
+    background-color: #ffffff;
+    transition: all 0.15s ease;
+    font-size: 14px;
+}
+
+entry:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+    outline: none;
+}
+
+entry:hover {
+    border-color: #cbd5e1;
+}
+
+/* Switch - Flat Design */
+switch {
+    border-radius: 9999px;
+    border: 2px solid #e5e7eb;
+}
+
+switch:checked {
+    background-color: #3b82f6;
+    border-color: #3b82f6;
+}
+
+switch slider {
+    border-radius: 9999px;
+    background-color: #ffffff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Separadores */
+separator {
+    background-color: #e5e7eb;
+    min-height: 1px;
+}
+
+/* Labels especiales */
+.dim-label {
+    color: #64748b;
+    font-size: 13px;
+}
+
+.title-label {
+    font-size: 18px;
+    font-weight: 700;
+    color: #0f172a;
+}
+
+.subtitle-label {
+    font-size: 14px;
+    color: #64748b;
+    font-weight: 500;
+}
+
+/* Info boxes - Flat Design */
+.info-box {
+    background-color: #dbeafe;
+    border: 2px solid #3b82f6;
+    border-radius: 8px;
+    padding: 14px;
+}
+
+.warning-box {
+    background-color: #fef3c7;
+    border: 2px solid #f59e0b;
+    border-radius: 8px;
+    padding: 14px;
+}
+
+.error-box {
+    background-color: #fee2e2;
+    border: 2px solid #ef4444;
+    border-radius: 8px;
+    padding: 14px;
+}
+
+.success-box {
+    background-color: #dcfce7;
+    border: 2px solid #10b981;
+    border-radius: 8px;
+    padding: 14px;
+}
+
+/* Stack components - Flat Design */
+.component-frame {
+    background-color: #ffffff;
+    border-radius: 10px;
+    border: 2px solid #e5e7eb;
+    padding: 16px;
+    margin: 8px 0;
+    transition: all 0.15s ease;
+}
+
+.component-frame:hover {
+    border-color: #cbd5e1;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.component-frame.installed {
+    border-color: #10b981;
+    background-color: #f0fdf4;
+}
+
+.component-name {
+    font-size: 16px;
+    font-weight: 600;
+    color: #0f172a;
+}
+
+.component-version {
+    font-size: 12px;
+    color: #10b981;
+    font-weight: 600;
+}
+
+.component-description {
+    font-size: 13px;
+    color: #64748b;
+}
+
+/* Statusbar - Flat Design */
+statusbar {
+    background-color: #1e293b;
+    color: #f1f5f9;
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+/* Scrollbars - Flat Design */
+scrollbar {
+    background-color: transparent;
+}
+
+scrollbar slider {
+    background-color: #cbd5e1;
+    border-radius: 9999px;
+    min-width: 10px;
+    min-height: 10px;
+    transition: background-color 0.15s ease;
+}
+
+scrollbar slider:hover {
+    background-color: #94a3b8;
+}
+
+/* Tooltips - Flat Design */
+tooltip {
+    background-color: #1e293b;
+    color: #f1f5f9;
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
