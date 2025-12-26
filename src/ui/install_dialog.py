@@ -9,7 +9,7 @@ from gi.repository import Gtk, GLib
 import logging
 import threading
 
-from core import StackInstaller
+from ..core import StackInstaller
 
 logger = logging.getLogger(__name__)
 

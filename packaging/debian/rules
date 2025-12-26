@@ -6,6 +6,10 @@ export PYBUILD_NAME = xlamp
 %:
 	dh $@ --with python3 --buildsystem=pybuild
 
+override_dh_auto_test:
+	# Deshabilitar tests (no hay tests en este proyecto)
+	@echo "Skipping tests"
+
 override_dh_auto_install:
 	dh_auto_install
 	# Instalar archivos adicionales

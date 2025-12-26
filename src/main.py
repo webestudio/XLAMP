@@ -17,9 +17,9 @@ import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, GLib
 
-from data import Database
-from ui import MainWindow
-from utils import setup_logging
+from .data import Database
+from .ui import MainWindow
+from .utils import setup_logging
 
 logger = logging.getLogger(__name__)
 

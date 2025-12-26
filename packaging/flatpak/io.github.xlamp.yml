@@ -16,10 +16,6 @@ finish-args:
   # Acceso al sistema de archivos
   - --filesystem=host
   
-  # Acceso a /var, /etc para gestión de Apache
-  - --filesystem=/var
-  - --filesystem=/etc
-  
   # Permitir hablar con el host (necesario para systemctl)
   - --talk-name=org.freedesktop.systemd1
   - --talk-name=org.freedesktop.PolicyKit1
@@ -29,50 +25,23 @@ finish-args:
   
   # Acceso al host completo (necesario para gestión del sistema)
   - --filesystem=host-os
+  
+  # Acceso a internet para pip
+  - --share=network
 
 modules:
-  # Python dependencies
-  - name: python3-psutil
+  # Python dependencies - install from PyPI
+  - name: python3-dependencies
     buildsystem: simple
     build-commands:
-      - pip3 install --no-index --find-links="file://${PWD}" --prefix=${FLATPAK_DEST} psutil
-    sources:
-      - type: file
-        url: https://files.pythonhosted.org/packages/source/p/psutil/psutil-5.9.8.tar.gz
-        sha256: 6be126e3225486dff286a8fb9a06246a5253f4c7c53b475ea5f5ac934e64194c
-
-  - name: python3-jinja2
-    buildsystem: simple
-    build-commands:
-      - pip3 install --no-index --find-links="file://${PWD}" --prefix=${FLATPAK_DEST} Jinja2
-    sources:
-      - type: file
-        url: https://files.pythonhosted.org/packages/source/J/Jinja2/Jinja2-3.1.3.tar.gz
-        sha256: ac8bd6544d4bb2c9792bf3a159e80bba8fda7f07e81bc3aed565432d5925ba90
-
-  - name: python3-markupsafe
-    buildsystem: simple
-    build-commands:
-      - pip3 install --no-index --find-links="file://${PWD}" --prefix=${FLATPAK_DEST} MarkupSafe
-    sources:
-      - type: file
-        url: https://files.pythonhosted.org/packages/source/M/MarkupSafe/MarkupSafe-2.1.5.tar.gz
-        sha256: d283d37a890ba4c1ae73ffadf8046435c76e7bc2247bbb63c00bd1a709c6544b
-
-  - name: python3-dotenv
-    buildsystem: simple
-    build-commands:
-      - pip3 install --no-index --find-links="file://${PWD}" --prefix=${FLATPAK_DEST} python-dotenv
-    sources:
-      - type: file
-        url: https://files.pythonhosted.org/packages/source/p/python-dotenv/python-dotenv-1.0.1.tar.gz
-        sha256: e324ee90a023d808f1959c46bcbc04446a10ced277783dc6ee09987c37ec10ca
+      - pip3 install --prefix=${FLATPAK_DEST} psutil Jinja2 python-dotenv
+    sources: []
 
   # XLAMP application
   - name: xlamp
     buildsystem: simple
     build-commands:
-      - pip3 install --no-index --no-build-isolation --prefix=${FLATPAK_DEST} .
+      - pip3 install --prefix=${FLATPAK_DEST} --no-deps .
       - install -Dm644 icon.png ${FLATPAK_DEST}/share/icons/hicolor/256x256/apps/io.github.xlamp.png
       - install -Dm644 packaging/xlamp.desktop ${FLATPAK_DEST}/share/applications/io.github.xlamp.desktop
       - install -Dm644 packaging/io.github.xlamp.metainfo.xml ${FLATPAK_DEST}/share/metainfo/io.github.xlamp.metainfo.xml

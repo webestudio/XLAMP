@@ -14,8 +14,8 @@ import subprocess
 import threading
 from pathlib import Path
 
-from core import StackDetector, ServiceManager, VHostManager, BackupManager, PHPManager
-from data import Database, VirtualHost
+from ..core import StackDetector, ServiceManager, VHostManager, BackupManager, PHPManager
+from ..data import Database, VirtualHost
 from .install_dialog import InstallDialog
 from .vhost_dialog import VHostDialog
 

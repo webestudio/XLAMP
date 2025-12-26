@@ -10,7 +10,7 @@ import logging
 import os
 from typing import Tuple
 
-from data.models import VirtualHost
+from ..data.models import VirtualHost
 
 logger = logging.getLogger(__name__)
 

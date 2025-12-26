@@ -19,21 +19,29 @@ if [ ! -f "setup.py" ]; then
     exit 1
 fi
 
+# Detectar si estamos en flatpak y usar flatpak-spawn
+if [ -f "/.flatpak-info" ]; then
+    echo -e "${YELLOW}Detectado entorno Flatpak, usando flatpak-spawn...${NC}"
+    CMD_PREFIX="flatpak-spawn --host"
+else
+    CMD_PREFIX=""
+fi
+
 # Verificar dependencias de construcción
 echo -e "\n${YELLOW}Verificando dependencias de construcción...${NC}"
-DEPS=(debhelper dh-python python3-setuptools devscripts)
+DEPS=(debhelper dh-python python3-all python3-setuptools devscripts build-essential)
 MISSING=()
 
 for dep in "${DEPS[@]}"; do
-    if ! dpkg -l | grep -q "^ii  $dep"; then
+    if ! $CMD_PREFIX dpkg -l 2>/dev/null | grep -q "^ii  $dep"; then
         MISSING+=("$dep")
     fi
 done
 
 if [ ${#MISSING[@]} -gt 0 ]; then
     echo -e "${YELLOW}Instalando dependencias faltantes: ${MISSING[*]}${NC}"
-    sudo apt-get update
-    sudo apt-get install -y "${MISSING[@]}"
+    $CMD_PREFIX sudo apt-get update
+    $CMD_PREFIX sudo apt-get install -y "${MISSING[@]}"
 fi
 
 # Limpiar construcciones anteriores
@@ -47,7 +55,7 @@ cp -r packaging/debian .
 
 # Construir el paquete
 echo -e "\n${YELLOW}Construyendo paquete .deb...${NC}"
-dpkg-buildpackage -us -uc -b
+$CMD_PREFIX dpkg-buildpackage -us -uc -b
 
 # Verificar resultado
 if [ $? -eq 0 ]; then
@@ -56,8 +64,8 @@ if [ $? -eq 0 ]; then
     echo -e "${GREEN}========================================${NC}"
     echo -e "\nPaquete creado en: ${GREEN}../xlamp_*.deb${NC}"
     echo -e "\nPara instalar:"
-    echo -e "  ${YELLOW}sudo dpkg -i ../xlamp_*.deb${NC}"
-    echo -e "  ${YELLOW}sudo apt-get install -f${NC}  # Para resolver dependencias"
+    echo -e "  ${YELLOW}$CMD_PREFIX sudo dpkg -i ../xlamp_*.deb${NC}"
+    echo -e "  ${YELLOW}$CMD_PREFIX sudo apt-get install -f${NC}  # Para resolver dependencias"
 else
     echo -e "\n${RED}Error al construir el paquete${NC}"
     exit 1

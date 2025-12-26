@@ -1,162 +1,127 @@
 # Empaquetado de XLAMP
 
-Este directorio contiene los archivos y scripts necesarios para crear diferentes tipos de instaladores para XLAMP.
+Este directorio contiene los archivos necesarios para crear el instalador de XLAMP para Elementary OS/Ubuntu.
 
-## Tipos de Paquetes Disponibles
-
-### 1. Paquete Debian (.deb)
+## 📦 Paquete Debian (.deb)
 **Recomendado para**: Elementary OS, Ubuntu, Debian y derivados
 
-#### Construir:
+### Requisitos Previos
+
+Instalar herramientas de construcción (solo la primera vez):
+```bash
+sudo apt-get update
+sudo apt-get install -y debhelper dh-python python3-all python3-setuptools devscripts build-essential
+```
+
+### Construir el Paquete
+
+**Importante**: Ejecuta desde una terminal del sistema (NO desde VSCode):
+
 ```bash
 cd /home/jorge/Documentos/XLAMP
-chmod +x packaging/build_deb.sh
 ./packaging/build_deb.sh
 ```
 
-#### Instalar:
+El script:
+1. Verifica e instala dependencias de construcción
+2. Construye el paquete .deb
+3. Crea el archivo `../xlamp_1.0.0_all.deb`
+
+### Instalar
+
 ```bash
 sudo dpkg -i ../xlamp_1.0.0_all.deb
 sudo apt-get install -f  # Resolver dependencias
 ```
 
-#### Desinstalar:
+### Desinstalar
+
 ```bash
 sudo apt remove xlamp
 ```
 
----
+### Ejecutar
 
-### 2. Flatpak
-**Recomendado para**: Cualquier distribución Linux moderna
-
-#### Requisitos previos:
-```bash
-sudo apt install flatpak flatpak-builder
-flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-```
-
-#### Construir:
-```bash
-cd /home/jorge/Documentos/XLAMP/packaging/flatpak
-chmod +x build_flatpak.sh
-./build_flatpak.sh
-```
-
-#### Instalar:
-```bash
-flatpak install --user xlamp.flatpak
-```
-
-#### Ejecutar:
-```bash
-flatpak run io.github.xlamp
-```
-
-#### Desinstalar:
-```bash
-flatpak uninstall io.github.xlamp
-```
+Después de instalar:
+- Busca "XLAMP" en el menú de aplicaciones
+- O ejecuta desde terminal: `xlamp`
 
 ---
 
-### 3. AppImage
-**Recomendado para**: Ejecución portable sin instalación
+## 🐍 Instalación desde Código Fuente
 
-#### Construir:
-```bash
-cd /home/jorge/Documentos/XLAMP
-chmod +x packaging/appimage/build_appimage.sh
-./packaging/appimage/build_appimage.sh
-```
+Para desarrollo o si prefieres no usar el paquete .deb:
 
-#### Ejecutar:
-```bash
-chmod +x packaging/appimage/XLAMP-x86_64.AppImage
-./packaging/appimage/XLAMP-x86_64.AppImage
-```
-
-#### "Instalar" (opcional - solo mover a PATH):
-```bash
-mkdir -p ~/bin
-mv packaging/appimage/XLAMP-x86_64.AppImage ~/bin/xlamp
-# Agregar ~/bin a PATH si no está
-```
-
----
-
-### 4. Instalación desde Código Fuente (setup.py)
-**Recomendado para**: Desarrollo y testing
-
-#### Instalar en modo desarrollo:
+### Instalar en modo desarrollo:
 ```bash
 cd /home/jorge/Documentos/XLAMP
 pip3 install -e .
 ```
 
-#### Instalar sistema-wide:
+### Instalar sistema-wide:
 ```bash
 cd /home/jorge/Documentos/XLAMP
 sudo pip3 install .
 ```
 
-#### Desinstalar:
+### Desinstalar:
 ```bash
 sudo pip3 uninstall xlamp
 ```
 
----
-
-## Comparación de Métodos
-
-| Método | Ventajas | Desventajas |
-|--------|----------|-------------|
-| **DEB** | ✅ Nativo para tu sistema<br>✅ Integración completa<br>✅ Actualizaciones automáticas | ❌ Solo Debian/Ubuntu<br>❌ Requiere dependencias |
-| **Flatpak** | ✅ Multi-distro<br>✅ Sandbox seguro<br>✅ Dependencias incluidas | ❌ Tamaño grande<br>❌ Requiere Flatpak runtime |
-| **AppImage** | ✅ Portable<br>✅ Sin instalación<br>✅ Multi-distro | ❌ No auto-actualiza<br>❌ Sin integración sistema |
-| **Source** | ✅ Siempre actualizado<br>✅ Modificable | ❌ Requiere Python<br>❌ Gestión manual |
+### Ejecutar (sin instalar):
+```bash
+cd /home/jorge/Documentos/XLAMP
+python3 -m src.main
+# o
+./run.sh
+```
 
 ---
 
-## Estructura de Archivos
+## 📋 Comparación de Métodos
+
+| Método | Ventajas | Desventajas | Recomendado Para |
+|--------|----------|-------------|------------------|
+| **DEB** | ✅ Integración completa con el sistema<br>✅ Actualizaciones con apt<br>✅ Gestión automática de dependencias<br>✅ Entrada en el menú de aplicaciones | ❌ Solo Debian/Ubuntu | **Usuarios finales de Elementary OS** |
+| **Source** | ✅ Siempre actualizado<br>✅ Fácil de modificar<br>✅ Sin reconstruir paquetes | ❌ Sin integración con el sistema<br>❌ Gestión manual de dependencias | **Desarrollo y testing** |
+
+---
+
+## 📁 Estructura de Archivos
 
 ```
 packaging/
 ├── README.md                      # Este archivo
-├── build_deb.sh                   # Script para construir .deb
-├── xlamp.desktop                  # Entrada del menú de aplicaciones
-├── xlamp.policy                   # Reglas de PolicyKit
+├── INSTRUCCIONES.md              # Guía detallada paso a paso
+├── build_deb.sh                  # Script para construir .deb
+├── xlamp.desktop                 # Entrada del menú de aplicaciones
+├── xlamp.policy                  # Reglas de PolicyKit
 │
-├── debian/                        # Paquete Debian
-│   ├── control                    # Metadatos y dependencias
-│   ├── rules                      # Reglas de construcción
-│   ├── changelog                  # Historial de cambios
-│   ├── compat                     # Versión de debhelper
-│   └── copyright                  # Licencia
-│
-├── flatpak/                       # Paquete Flatpak
-│   ├── io.github.xlamp.yml        # Manifiesto Flatpak
-│   ├── io.github.xlamp.metainfo.xml  # Metadata AppStream
-│   └── build_flatpak.sh           # Script de construcción
-│
-└── appimage/                      # AppImage portable
-    └── build_appimage.sh          # Script de construcción
+└── debian/                       # Paquete Debian
+    ├── control                   # Metadatos y dependencias
+    ├── rules                     # Reglas de construcción
+    ├── changelog                 # Historial de cambios
+    ├── compat                    # Versión de debhelper
+    └── copyright                 # Licencia
 ```
 
 ---
 
-## Notas Importantes
+## 🔒 Permisos del Sistema
 
-### Permisos del Sistema
 XLAMP requiere permisos elevados para:
 - Instalar/desinstalar paquetes del sistema (Apache, MySQL, PHP)
 - Crear/modificar hosts virtuales en `/var/www` y `/etc/apache2`
 - Gestionar servicios del sistema (start/stop/restart)
 - Modificar `/etc/hosts` para dominios .test
 
-Todos los métodos de instalación configuran PolicyKit para solicitar contraseña cuando sea necesario.
+El paquete .deb configura PolicyKit automáticamente para solicitar contraseña cuando sea necesario.
 
-### Dependencias
+---
+
+## 📦 Dependencias
+
 La aplicación requiere:
 - Python 3.8+
 - GTK 3.0
@@ -165,42 +130,43 @@ La aplicación requiere:
 - Jinja2
 - python-dotenv
 
-Los paquetes .deb y Flatpak gestionan dependencias automáticamente.
-AppImage las incluye en el bundle.
-Source requiere instalación manual.
+**El paquete .deb instala todas las dependencias automáticamente.**
 
 ---
 
-## Recomendaciones
+## 🚀 Recomendación Final
 
-**Para usuarios de Elementary OS/Ubuntu**: Usa el paquete **.deb**
-- Mayor integración con el sistema
-- Actualizaciones fáciles
-- Gestión de dependencias automática
+**Para usuarios de Elementary OS (tu caso):**
+```bash
+# Construir e instalar de una vez:
+cd /home/jorge/Documentos/XLAMP
+./packaging/build_deb.sh
+sudo dpkg -i ../xlamp_1.0.0_all.deb
+sudo apt-get install -f
+```
 
-**Para otras distribuciones**: Usa **Flatpak**
-- Compatible con cualquier distro moderna
-- Sandbox seguro
-- Actualizaciones automáticas
-
-**Para testing/desarrollo**: Usa **Source** (setup.py)
-- Cambios inmediatos
-- Sin reconstruir paquetes
-
-**Para portabilidad**: Usa **AppImage**
-- Lleva XLAMP en USB
-- Sin instalación requerida
-- Funciona en cualquier Linux
+Esto te dará la mejor experiencia con integración completa del sistema.
 
 ---
 
-## Soporte
+## 🐛 Solución de Problemas
 
-Si encuentras problemas durante el empaquetado:
+### Error: "dpkg: orden no encontrada"
+**Solución**: Ejecuta desde una terminal del sistema (no desde VSCode Flatpak)
 
-1. Verifica que todas las dependencias de construcción estén instaladas
-2. Revisa los logs de construcción
-3. Asegúrate de ejecutar los scripts desde los directorios correctos
-4. Consulta la documentación específica de cada formato
+### Error: "Unmet build dependencies"
+**Solución**: El script las instalará automáticamente, solo confirma con tu contraseña
 
-Para reportar bugs: https://github.com/tu-usuario/xlamp/issues
+### Error durante la construcción
+**Solución**: Limpia y reconstruye:
+```bash
+cd /home/jorge/Documentos/XLAMP
+rm -rf debian/ .pybuild/
+./packaging/build_deb.sh
+```
+
+---
+
+## 📞 Soporte
+
+Para reportar problemas: https://github.com/tu-usuario/xlamp/issues
