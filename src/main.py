@@ -7,6 +7,7 @@ Aplicación GUI para gestión del stack LAMP en Linux.
 import sys
 import signal
 import logging
+import traceback
 from pathlib import Path
 
 # Agregar directorio src al path
@@ -21,6 +22,42 @@ from ui import MainWindow
 from utils import setup_logging
 
 logger = logging.getLogger(__name__)
+
+
+def global_exception_handler(exc_type, exc_value, exc_traceback):
+    """Maneja excepciones no capturadas globalmente."""
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+    
+    logger.error(
+        "Excepción no manejada:",
+        exc_info=(exc_type, exc_value, exc_traceback)
+    )
+    
+    # Mostrar diálogo de error al usuario
+    try:
+        dialog = Gtk.MessageDialog(
+            parent=None,
+            flags=0,
+            message_type=Gtk.MessageType.ERROR,
+            buttons=Gtk.ButtonsType.CLOSE,
+            text="Error Fatal"
+        )
+        error_detail = ''.join(traceback.format_exception(exc_type, exc_value, exc_traceback))
+        dialog.format_secondary_text(
+            f"La aplicación encontró un error inesperado:\n\n"
+            f"{exc_type.__name__}: {exc_value}\n\n"
+            f"Revisa los logs en: logs/lamp_manager.log"
+        )
+        dialog.run()
+        dialog.destroy()
+    except:
+        pass  # Si falla el diálogo, al menos está en el log
+
+
+# Instalar manejador global de excepciones
+sys.excepthook = global_exception_handler
 
 
 class LAMPManagerApp:

@@ -467,10 +467,26 @@ class StackInstaller:
         try:
             logger.info(f"Desinstalando {component['name']}...")
             
-            # Detener servicio si existe
-            if component['service']:
-                logger.info(f"Deteniendo servicio {component['service']}...")
-                self._stop_service(component['service'])
+            # Instalación personalizada (ej: WP-CLI)
+            if component.get('custom_install'):
+                return self._custom_uninstall(component_id)
+            
+            # Verificar que hay paquetes para desinstalar
+            if not packages:
+                return False, f"No hay paquetes para desinstalar en {component['name']}"
+            
+            # Detener servicio si existe (verificar antes de detener)
+            if component.get('service'):
+                service_name = component['service']
+                logger.info(f"Intentando detener servicio {service_name}...")
+                try:
+                    # Intentar detener el servicio directamente
+                    # Si no existe o falla, continuamos con la desinstalación
+                    self._stop_service(service_name)
+                    logger.info(f"✓ Servicio {service_name} detenido")
+                except Exception as e:
+                    logger.warning(f"No se pudo detener servicio {service_name}: {e}")
+                    logger.info("Continuando con la desinstalación de paquetes...")
             
             # Desinstalar paquetes con flatpak-spawn si es necesario
             uninstall_cmd = self._build_command([
@@ -497,6 +513,16 @@ class StackInstaller:
                 'pkexec', 'apt-get', 'autoremove', '-y'
             ])
             subprocess.run(autoremove_cmd, capture_output=True, timeout=60)
+            
+            # Reiniciar servicio relacionado después de desinstalar (post_install)
+            if component.get('post_install'):
+                service_to_restart = component['post_install']
+                logger.info(f"Intentando reiniciar servicio relacionado: {service_to_restart}")
+                try:
+                    self._restart_service(service_to_restart)
+                    logger.info(f"✓ Servicio {service_to_restart} reiniciado")
+                except Exception as e:
+                    logger.warning(f"No se pudo reiniciar servicio {service_to_restart}: {e}")
             
             logger.info(f"{component['name']} desinstalado correctamente")
             return True, f"{component['name']} desinstalado correctamente"
@@ -549,12 +575,16 @@ class StackInstaller:
             result = subprocess.run(
                 cmd,
                 capture_output=True,
+                text=True,
                 timeout=30
             )
             if result.returncode == 0:
                 logger.info(f"✓ Servicio {service_name} detenido")
             else:
-                logger.warning(f"No se pudo detener {service_name}: {result.stderr}")
+                error_msg = result.stderr.strip() if result.stderr else 'Error desconocido'
+                logger.warning(f"No se pudo detener {service_name}: {error_msg}")
+        except subprocess.TimeoutExpired:
+            logger.warning(f"Timeout deteniendo servicio {service_name}")
         except Exception as e:
             logger.warning(f"No se pudo detener {service_name}: {e}")
     
@@ -565,12 +595,16 @@ class StackInstaller:
             result = subprocess.run(
                 cmd,
                 capture_output=True,
+                text=True,
                 timeout=30
             )
             if result.returncode == 0:
                 logger.info(f"✓ Servicio {service_name} reiniciado")
             else:
-                logger.warning(f"No se pudo reiniciar {service_name}: {result.stderr}")
+                error_msg = result.stderr.strip() if result.stderr else 'Error desconocido'
+                logger.warning(f"No se pudo reiniciar {service_name}: {error_msg}")
+        except subprocess.TimeoutExpired:
+            logger.warning(f"Timeout reiniciando servicio {service_name}")
         except Exception as e:
             logger.warning(f"No se pudo reiniciar {service_name}: {e}")
     
@@ -631,6 +665,56 @@ class StackInstaller:
             return self._install_wpcli(progress_callback)
         
         return False, f"Instalación personalizada no implementada para {component_id}"
+    
+    def _custom_uninstall(self, component_id: str) -> Tuple[bool, str]:
+        """
+        Desinstalación personalizada para componentes instalados manualmente.
+        
+        Args:
+            component_id: ID del componente
+            
+        Returns:
+            Tupla (éxito, mensaje)
+        """
+        if component_id == 'wpcli':
+            return self._uninstall_wpcli()
+        
+        return False, f"Desinstalación personalizada no implementada para {component_id}"
+    
+    def _uninstall_wpcli(self) -> Tuple[bool, str]:
+        """
+        Desinstala WP-CLI eliminando el binario.
+        
+        Returns:
+            Tupla (éxito, mensaje)
+        """
+        try:
+            logger.info("Desinstalando WP-CLI...")
+            
+            wp_path = '/usr/local/bin/wp'
+            
+            # Verificar si existe
+            if not os.path.exists(wp_path):
+                logger.warning(f"WP-CLI no está instalado en {wp_path}")
+                return True, "WP-CLI no estaba instalado"
+            
+            # Eliminar el binario
+            remove_cmd = self._build_command(['pkexec', 'rm', '-f', wp_path])
+            
+            result = subprocess.run(remove_cmd, capture_output=True, text=True, timeout=30)
+            
+            if result.returncode != 0:
+                error_msg = result.stderr or "Error desconocido"
+                logger.error(f"Error eliminando WP-CLI: {error_msg}")
+                return False, f"Error al desinstalar WP-CLI: {error_msg}"
+            
+            logger.info("✓ WP-CLI desinstalado correctamente")
+            return True, "WP-CLI desinstalado correctamente"
+            
+        except Exception as e:
+            msg = f"Error desinstalando WP-CLI: {str(e)}"
+            logger.error(msg)
+            return False, msg
     
     def _install_wpcli(self, progress_callback=None) -> Tuple[bool, str]:
         """

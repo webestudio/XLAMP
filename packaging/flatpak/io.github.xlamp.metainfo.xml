@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.xlamp</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>XLAMP Manager</name>
+  <summary>Gestión completa del stack LAMP para Linux</summary>
+  
+  <description>
+    <p>
+      XLAMP es una aplicación gráfica completa para la gestión del stack LAMP 
+      (Linux, Apache, MySQL, PHP) en sistemas Linux.
+    </p>
+    <p>Características principales:</p>
+    <ul>
+      <li>Instalación y configuración de Apache, MySQL/MariaDB y PHP</li>
+      <li>Gestión de hosts virtuales con dominios .test</li>
+      <li>Administración de múltiples versiones de PHP (8.0 - 8.3)</li>
+      <li>Gestión de servicios (iniciar, detener, reiniciar)</li>
+      <li>Sistema de respaldos automáticos para bases de datos y configuraciones</li>
+      <li>Interfaz gráfica intuitiva basada en GTK3</li>
+      <li>Compatible con sistemas de pantalla pequeña (13" o menos)</li>
+      <li>Detección multi-plataforma (dpkg/rpm/pacman)</li>
+    </ul>
+  </description>
+  
+  <launchable type="desktop-id">io.github.xlamp.desktop</launchable>
+  
+  <screenshots>
+    <screenshot type="default">
+      <caption>Ventana principal de XLAMP</caption>
+    </screenshot>
+  </screenshots>
+  
+  <url type="homepage">https://github.com/tu-usuario/xlamp</url>
+  <url type="bugtracker">https://github.com/tu-usuario/xlamp/issues</url>
+  
+  <developer_name>Jorge</developer_name>
+  
+  <provides>
+    <binary>xlamp</binary>
+  </provides>
+  
+  <releases>
+    <release version="1.0.0" date="2024-12-26">
+      <description>
+        <p>Lanzamiento inicial</p>
+        <ul>
+          <li>Gestión completa del stack LAMP</li>
+          <li>Hosts virtuales con dominios .test</li>
+          <li>Múltiples versiones de PHP</li>
+          <li>Sistema de respaldos</li>
+          <li>Interfaz optimizada para pantallas pequeñas</li>
+        </ul>
+      </description>
+    </release>
+  </releases>
+  
+  <content_rating type="oars-1.1" />
+  
+  <categories>
+    <category>System</category>
+    <category>Settings</category>
+  </categories>
+  
+  <keywords>
+    <keyword>lamp</keyword>
+    <keyword>apache</keyword>
+    <keyword>mysql</keyword>
+    <keyword>php</keyword>
+    <keyword>server</keyword>
+    <keyword>development</keyword>
+  </keywords>
+</component>

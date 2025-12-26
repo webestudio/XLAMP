@@ -12,10 +12,12 @@ import os
 import shutil
 import subprocess
 import threading
+from pathlib import Path
 
-from core import StackDetector, ServiceManager
-from data import Database
+from core import StackDetector, ServiceManager, VHostManager, BackupManager, PHPManager
+from data import Database, VirtualHost
 from .install_dialog import InstallDialog
+from .vhost_dialog import VHostDialog
 
 logger = logging.getLogger(__name__)
 
@@ -35,19 +37,35 @@ class MainWindow(Gtk.Window):
         self.db = db
         self.stack_detector = StackDetector()
         self.service_manager = ServiceManager()
+        self.vhost_manager = VHostManager(use_flatpak=os.path.exists('/.flatpak-info'))
+        self.php_manager = PHPManager(use_flatpak=os.path.exists('/.flatpak-info'))
+        
+        # Inicializar BackupManager
+        backup_path = self.db.get_config('backup_path') or 'backups/'
+        self.backup_manager = BackupManager(
+            backup_dir=backup_path,
+            use_flatpak=os.path.exists('/.flatpak-info')
+        )
+        
         self.installed_components = {}  # Componentes instalados
         self.systemctl_available = self.service_manager.systemctl is not None
+        self.is_busy = False  # Flag para bloquear acciones durante operaciones
         
         # Cargar estilos CSS
         self._load_styles()
         
-        # Configuración de la ventana
-        self.set_default_size(900, 550)
+        # Configuración de la ventana (optimizada para pantallas pequeñas)
+        self.set_default_size(850, 500)
         self.set_border_width(0)
         self.set_position(Gtk.WindowPosition.CENTER)
         
+        # Configurar icono de la aplicación
+        self._set_window_icon()
+        
         # Permitir redimensionar
         self.set_resizable(True)
+        # Tamaño mínimo para pantallas de 13"
+        self.set_size_request(800, 450)
         
         # Crear interfaz
         self._create_ui()
@@ -57,6 +75,9 @@ class MainWindow(Gtk.Window):
         
         # Actualizar estado de servicios cada 5 segundos
         GLib.timeout_add_seconds(5, self._update_services_status)
+        
+        # Limpiar backups antiguos cada 24 horas si está habilitado
+        GLib.timeout_add_seconds(86400, self._auto_cleanup_backups)
     
     def _load_styles(self) -> None:
         """Carga los estilos CSS de la aplicación."""
@@ -79,6 +100,24 @@ class MainWindow(Gtk.Window):
         except Exception as e:
             logger.error(f"Error cargando estilos CSS: {e}")
     
+    def _set_window_icon(self) -> None:
+        """Configura el icono de la ventana y la aplicación."""
+        try:
+            # Buscar el archivo icon.png en la raíz del proyecto
+            current_dir = Path(__file__).resolve().parent
+            project_root = current_dir.parent.parent
+            icon_path = project_root / 'icon.png'
+            
+            if icon_path.exists():
+                self.set_icon_from_file(str(icon_path))
+                # También configurar como icono predeterminado para todos los diálogos
+                Gtk.Window.set_default_icon_from_file(str(icon_path))
+                logger.info(f"Icono de la aplicación cargado: {icon_path}")
+            else:
+                logger.warning(f"Icono no encontrado: {icon_path}")
+        except Exception as e:
+            logger.error(f"Error cargando icono de la aplicación: {e}")
+    
     def _create_ui(self) -> None:
         """Crea la interfaz de usuario."""
         # Container principal
@@ -99,6 +138,7 @@ class MainWindow(Gtk.Window):
         self.notebook.set_margin_start(10)
         self.notebook.set_margin_end(10)
         self.notebook.set_margin_bottom(10)
+        self.notebook.set_scrollable(True)  # Pestañas con scroll si hay muchas
         vbox.pack_start(self.notebook, True, True, 0)
         
         # Tabs
@@ -112,6 +152,9 @@ class MainWindow(Gtk.Window):
         self.statusbar = Gtk.Statusbar()
         vbox.pack_start(self.statusbar, False, False, 0)
         self._update_statusbar("Listo")
+        
+        # Cargar datos iniciales
+        self._load_vhosts()
     
     def _create_header(self) -> Gtk.Box:
         """Crea el header de la aplicación."""
@@ -283,10 +326,15 @@ class MainWindow(Gtk.Window):
     
     def _create_php_tab(self) -> None:
         """Crea el tab de PHP."""
+        # Contenedor principal con scroll
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         vbox.set_margin_start(10)
         vbox.set_margin_end(10)
         vbox.set_margin_top(10)
+        vbox.set_margin_bottom(10)
         
         # Header
         hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
@@ -360,13 +408,17 @@ class MainWindow(Gtk.Window):
         self.php_listbox = Gtk.ListBox()
         self.php_listbox.set_selection_mode(Gtk.SelectionMode.NONE)
         
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        scrolled.add(self.php_listbox)
-        vbox.pack_start(scrolled, True, True, 0)
+        php_scrolled = Gtk.ScrolledWindow()
+        php_scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        php_scrolled.set_min_content_height(150)  # Altura mínima para la lista
+        php_scrolled.add(self.php_listbox)
+        vbox.pack_start(php_scrolled, True, True, 0)
+        
+        # Agregar vbox al scrolled principal
+        scrolled.add(vbox)
         
         label = Gtk.Label(label="PHP")
-        self.notebook.append_page(vbox, label)
+        self.notebook.append_page(scrolled, label)
     
     def _create_stack_tab(self) -> None:
         """Crea el tab del stack."""
@@ -405,7 +457,6 @@ class MainWindow(Gtk.Window):
         self.category_combo = Gtk.ComboBoxText()
         self.category_combo.append("all", "Todas")
         self.category_combo.append("servidores", "Servidores")
-        self.category_combo.append("lenguajes", "Lenguajes")
         self.category_combo.append("dependencias", "Dependencias")
         self.category_combo.append("versionado", "Versionado")
         self.category_combo.append("cache", "Caché")
@@ -448,10 +499,15 @@ class MainWindow(Gtk.Window):
     
     def _create_config_tab(self) -> None:
         """Crea el tab de configuración."""
+        # Contenedor principal con scroll
+        main_scrolled = Gtk.ScrolledWindow()
+        main_scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         vbox.set_margin_start(10)
         vbox.set_margin_end(10)
         vbox.set_margin_top(10)
+        vbox.set_margin_bottom(10)
         
         title = Gtk.Label()
         title.set_markup("<span size='large' weight='bold'>Configuración</span>")
@@ -548,6 +604,41 @@ class MainWindow(Gtk.Window):
         config_frame.add(grid)
         vbox.pack_start(config_frame, False, False, 0)
         
+        # Sección de Backups
+        backup_frame = Gtk.Frame(label="Gestión de Backups")
+        backup_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        backup_box.set_margin_start(10)
+        backup_box.set_margin_end(10)
+        backup_box.set_margin_top(10)
+        backup_box.set_margin_bottom(10)
+        
+        # Estadísticas de backups
+        self.backup_stats_label = Gtk.Label(xalign=0)
+        self.backup_stats_label.set_markup("<i>Cargando estadísticas...</i>")
+        backup_box.pack_start(self.backup_stats_label, False, False, 0)
+        
+        # Botones de backup
+        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        
+        backup_db_btn = Gtk.Button(label="Backup Base de Datos")
+        backup_db_btn.connect("clicked", self._on_backup_database_clicked)
+        btn_box.pack_start(backup_db_btn, False, False, 0)
+        
+        backup_config_btn = Gtk.Button(label="Backup Apache Config")
+        backup_config_btn.connect("clicked", self._on_backup_apache_clicked)
+        btn_box.pack_start(backup_config_btn, False, False, 0)
+        
+        cleanup_btn = Gtk.Button(label="Limpiar Antiguos")
+        cleanup_btn.connect("clicked", self._on_cleanup_backups_clicked)
+        btn_box.pack_start(cleanup_btn, False, False, 0)
+        
+        backup_box.pack_start(btn_box, False, False, 0)
+        backup_frame.add(backup_box)
+        vbox.pack_start(backup_frame, False, False, 10)
+        
+        # Actualizar estadísticas iniciales
+        GLib.idle_add(self._update_backup_stats)
+        
         # Botón de guardar configuración
         save_btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         save_btn = Gtk.Button(label="Guardar Configuración")
@@ -556,8 +647,11 @@ class MainWindow(Gtk.Window):
         save_btn_box.pack_start(save_btn, False, False, 0)
         vbox.pack_start(save_btn_box, False, False, 10)
         
+        # Agregar vbox al scroll principal
+        main_scrolled.add(vbox)
+        
         label = Gtk.Label(label="Configuración")
-        self.notebook.append_page(vbox, label)
+        self.notebook.append_page(main_scrolled, label)
     
     def _detect_stack(self) -> bool:
         """Detecta el stack instalado."""
@@ -777,7 +871,13 @@ class MainWindow(Gtk.Window):
             'cms': 'CMS y Frameworks'
         }
         
+        # Solo filtrar el paquete base de PHP (se gestiona en la pestaña PHP)
+        # Las herramientas relacionadas (xdebug, phpmyadmin, etc.) se mantienen en Stack
         for name, component in components.items():
+            # Filtrar solo PHP base
+            if name == 'php':
+                continue
+            
             comp_info = StackInstaller.COMPONENTS.get(name, {})
             category = comp_info.get('category', 'otros')
             
@@ -909,45 +1009,80 @@ class MainWindow(Gtk.Window):
         for child in self.php_listbox.get_children():
             self.php_listbox.remove(child)
         
-        php_versions = self.stack_detector.php_versions
+        # Obtener versiones instaladas con PHPManager
+        installed_versions = self.php_manager.detect_installed_versions()
         
-        if not php_versions:
+        if not installed_versions:
             row = Gtk.ListBoxRow()
-            label = Gtk.Label(label="No se detectaron versiones PHP instaladas")
+            row.set_selectable(False)
+            label = Gtk.Label(label="No se detectaron versiones PHP instaladas\nInstale una versión usando los botones arriba")
             label.set_margin_top(20)
             label.set_margin_bottom(20)
+            label.set_justify(Gtk.Justification.CENTER)
             row.add(label)
             self.php_listbox.add(row)
         else:
-            for php in php_versions:
+            for version, info in installed_versions.items():
                 row = Gtk.ListBoxRow()
+                row.set_selectable(False)
+                
                 hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
                 hbox.set_margin_start(10)
                 hbox.set_margin_end(10)
                 hbox.set_margin_top(10)
                 hbox.set_margin_bottom(10)
                 
-                # Icono
+                # Icono de estado
                 icon = Gtk.Image()
-                if php.is_active:
-                    icon.set_from_icon_name("emblem-default-symbolic", Gtk.IconSize.BUTTON)
+                if info['is_default']:
+                    icon.set_from_icon_name("emblem-default", Gtk.IconSize.BUTTON)
+                    icon.set_tooltip_text("Versión predeterminada del sistema")
                 else:
-                    icon.set_from_icon_name("emblem-system-symbolic", Gtk.IconSize.BUTTON)
+                    icon.set_from_icon_name("emblem-system", Gtk.IconSize.BUTTON)
                 hbox.pack_start(icon, False, False, 0)
                 
-                # Versión
-                label = Gtk.Label()
-                markup = f"<b>PHP {php.version}</b>"
-                if php.is_active:
-                    markup += " (activa)"
-                label.set_markup(markup)
-                label.set_halign(Gtk.Align.START)
-                hbox.pack_start(label, False, False, 0)
+                # Info versión
+                vbox_info = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
                 
-                # Ruta
-                path_label = Gtk.Label()
-                path_label.set_markup(f"<small>{php.path}</small>")
-                hbox.pack_start(path_label, True, True, 0)
+                version_label = Gtk.Label()
+                markup = f"<b>PHP {version}</b>"
+                if info['is_default']:
+                    markup += " <span foreground='#27ae60'>(predeterminada)</span>"
+                version_label.set_markup(markup)
+                version_label.set_halign(Gtk.Align.START)
+                vbox_info.pack_start(version_label, False, False, 0)
+                
+                # Información adicional
+                mode_text = "FPM" if info['fpm_installed'] else "mod_php"
+                status_text = "corriendo" if info.get('fpm_running') else "detenido"
+                status_color = "#27ae60" if info.get('fpm_running') else "#e74c3c"
+                
+                info_label = Gtk.Label()
+                info_label.set_markup(
+                    f"<small>Modo: {mode_text} • "
+                    f"Estado: <span foreground='{status_color}'>{status_text}</span> • "
+                    f"Módulos: {len(info.get('modules', []))}</small>"
+                )
+                info_label.set_halign(Gtk.Align.START)
+                vbox_info.pack_start(info_label, False, False, 0)
+                
+                hbox.pack_start(vbox_info, True, True, 0)
+                
+                # Botones de acción
+                btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+                
+                if not info['is_default']:
+                    default_btn = Gtk.Button(label="Predeterminada")
+                    default_btn.set_tooltip_text("Establecer como versión predeterminada")
+                    default_btn.connect("clicked", self._on_set_default_php, version)
+                    btn_box.pack_start(default_btn, False, False, 0)
+                
+                uninstall_btn = Gtk.Button(label="Desinstalar")
+                uninstall_btn.get_style_context().add_class("destructive-action")
+                uninstall_btn.connect("clicked", self._on_uninstall_php_version, version)
+                btn_box.pack_start(uninstall_btn, False, False, 0)
+                
+                hbox.pack_start(btn_box, False, False, 0)
                 
                 row.add(hbox)
                 self.php_listbox.add(row)
@@ -970,6 +1105,38 @@ class MainWindow(Gtk.Window):
                 transient_for=self,
                 flags=0,
                 message_type=Gtk.MessageType.ERROR,
+                buttons=Gtk.ButtonsType.OK,
+                text=title
+            )
+            dialog.format_secondary_text(message)
+            dialog.run()
+            dialog.destroy()
+        except Exception as e:
+            logger.error(f"Error mostrando diálogo: {e}")
+    
+    def _show_info(self, title: str, message: str) -> None:
+        """Muestra un diálogo informativo."""
+        try:
+            dialog = Gtk.MessageDialog(
+                transient_for=self,
+                flags=0,
+                message_type=Gtk.MessageType.INFO,
+                buttons=Gtk.ButtonsType.OK,
+                text=title
+            )
+            dialog.format_secondary_text(message)
+            dialog.run()
+            dialog.destroy()
+        except Exception as e:
+            logger.error(f"Error mostrando diálogo: {e}")
+    
+    def _show_warning(self, title: str, message: str) -> None:
+        """Muestra un diálogo de advertencia."""
+        try:
+            dialog = Gtk.MessageDialog(
+                transient_for=self,
+                flags=0,
+                message_type=Gtk.MessageType.WARNING,
                 buttons=Gtk.ButtonsType.OK,
                 text=title
             )
@@ -1016,30 +1183,129 @@ class MainWindow(Gtk.Window):
     
     def _on_restart_service(self, button, service_name: str) -> None:
         """Handler para reiniciar servicio."""
+        if self.is_busy:
+            self._show_error("Operación en curso", "Espere a que termine la operación actual")
+            return
+        
         try:
+            # Confirmar reinicio
+            dialog = Gtk.MessageDialog(
+                transient_for=self,
+                flags=0,
+                message_type=Gtk.MessageType.QUESTION,
+                buttons=Gtk.ButtonsType.YES_NO,
+                text=f"Reiniciar servicio {service_name}"
+            )
+            dialog.format_secondary_text(
+                f"¿Está seguro que desea reiniciar el servicio {service_name}?\n"
+                "El servicio se detendrá y volverá a iniciar."
+            )
+            response = dialog.run()
+            dialog.destroy()
+            
+            if response != Gtk.ResponseType.YES:
+                return
+            
+            # Bloquear UI y mostrar progreso
+            self.is_busy = True
+            self.set_sensitive(False)
             self._update_statusbar(f"Reiniciando {service_name}...")
-            success, message = self.service_manager.restart_service(service_name)
-            self._update_statusbar(message)
-            if not success:
-                self._show_error("Error reiniciando servicio", message)
-            self._update_services_status()
+            
+            # Reiniciar en thread separado
+            def restart_thread():
+                try:
+                    success, message = self.service_manager.restart_service(service_name)
+                    GLib.idle_add(self._on_restart_complete, success, message, service_name)
+                except Exception as e:
+                    logger.error(f"Error en thread de reinicio: {e}", exc_info=True)
+                    GLib.idle_add(self._on_restart_complete, False, str(e), service_name)
+            
+            thread = threading.Thread(target=restart_thread, daemon=True)
+            thread.start()
+            
         except Exception as e:
             logger.error(f"Error reiniciando servicio: {e}", exc_info=True)
+            self.is_busy = False
+            self.set_sensitive(True)
             self._show_error("Error", str(e))
+    
+    def _on_restart_complete(self, success: bool, message: str, service_name: str) -> bool:
+        """Callback cuando termina el reinicio del servicio."""
+        self.is_busy = False
+        self.set_sensitive(True)
+        
+        if success:
+            self._update_statusbar(f"✓ {message}")
+            self._show_info("Éxito", message)
+        else:
+            self._update_statusbar(f"✗ Error: {message}")
+            self._show_error("Error reiniciando servicio", message)
+        
+        # Actualizar estado de servicios
+        self._update_services_status()
+        return False
     
     def _on_add_vhost_clicked(self, button) -> None:
         """Handler para agregar vhost."""
-        # TODO: Implementar diálogo de crear vhost
-        dialog = Gtk.MessageDialog(
-            transient_for=self,
-            flags=0,
-            message_type=Gtk.MessageType.INFO,
-            buttons=Gtk.ButtonsType.OK,
-            text="Crear Virtual Host"
-        )
-        dialog.format_secondary_text("Función en desarrollo")
-        dialog.run()
-        dialog.destroy()
+        if self.is_busy:
+            self._show_error("Operación en curso", "Espere a que termine la operación actual")
+            return
+        
+        dialog = VHostDialog(self)
+        response = dialog.run()
+        
+        if response == Gtk.ResponseType.OK:
+            # Validar datos
+            valid, error_msg = dialog.validate()
+            if not valid:
+                dialog.destroy()
+                self._show_error("Datos inválidos", error_msg)
+                return
+            
+            # Obtener datos
+            vhost = dialog.get_vhost_data()
+            dialog.destroy()
+            
+            # Crear host virtual
+            self.is_busy = True
+            self.set_sensitive(False)
+            self._update_statusbar("Creando host virtual...")
+            
+            def create_thread():
+                try:
+                    success, message = self.vhost_manager.create_vhost(vhost, vhost.document_root)
+                    
+                    GLib.idle_add(self._on_vhost_created, success, message, vhost)
+                except Exception as e:
+                    logger.error(f"Error creando vhost: {e}", exc_info=True)
+                    GLib.idle_add(self._on_vhost_created, False, str(e), vhost)
+            
+            thread = threading.Thread(target=create_thread, daemon=True)
+            thread.start()
+        else:
+            dialog.destroy()
+    
+    def _on_vhost_created(self, success: bool, message: str, vhost: VirtualHost) -> bool:
+        """Callback cuando se crea un vhost."""
+        self.is_busy = False
+        self.set_sensitive(True)
+        
+        if success:
+            # Guardar en base de datos
+            vhost_id = self.db.add_vhost(vhost)
+            logger.info(f"Host virtual guardado en BD con ID: {vhost_id}")
+            
+            self._update_statusbar(f"✓ {message}")
+            self._show_info("Éxito", f"{message}\n\nAccede en: http://{vhost.server_name}")
+            
+            # Recargar lista de vhosts
+            logger.info("Recargando lista de hosts virtuales...")
+            self._load_vhosts()
+        else:
+            self._update_statusbar(f"✗ Error: {message}")
+            self._show_error("Error creando host virtual", message)
+        
+        return False
     
     def _on_open_www_clicked(self, button) -> None:
         """Handler para abrir directorio raíz de Apache."""
@@ -1065,12 +1331,18 @@ class MainWindow(Gtk.Window):
     
     def _on_install_php_version_clicked(self, button) -> None:
         """Handler para instalar versión seleccionada de PHP."""
+        if self.is_busy:
+            self._show_error("Operación en curso", "Espere a que termine la operación actual")
+            return
+        
         try:
-            # Obtener la versión seleccionada de los radio buttons
+            # Obtener la versión seleccionada
             selected_version = None
             for radio in self.php_version_radios:
                 if radio.get_active():
-                    selected_version = radio.get_label().split()[0]  # Extrae "8.3", "8.2", etc
+                    label = radio.get_label()
+                    # Extraer versión del label "PHP 8.3" -> "8.3"
+                    selected_version = label.replace('PHP ', '').strip()
                     break
             
             if not selected_version:
@@ -1086,23 +1358,68 @@ class MainWindow(Gtk.Window):
                 text=f"Instalar PHP {selected_version}"
             )
             dialog.format_secondary_text(
-                f"¿Desea instalar PHP {selected_version} y sus módulos principales?\n"
-                "Esto puede tardar varios minutos."
+                f"¿Desea instalar PHP {selected_version} con PHP-FPM y módulos principales?\n\n"
+                "Paquetes a instalar:\n"
+                f"  • php{selected_version}, php{selected_version}-fpm\n"
+                "  • php-mysql, php-xml, php-curl, php-mbstring\n"
+                "  • php-zip, php-gd, php-intl\n\n"
+                "Esto puede tardar varios minutos y requiere contraseña de administrador."
             )
             response = dialog.run()
             dialog.destroy()
             
-            if response == Gtk.ResponseType.YES:
-                # Usar el instalador con solo el componente PHP
-                installer_dialog = InstallDialog(self, self.installed_components)
-                installer_dialog.run()
-                installer_dialog.destroy()
+            if response != Gtk.ResponseType.YES:
+                return
+            
+            # Bloquear UI y mostrar progreso
+            self.is_busy = True
+            self.set_sensitive(False)
+            
+            # Crear diálogo de progreso
+            progress_dialog = Gtk.Dialog(
+                title=f"Instalando PHP {selected_version}",
+                transient_for=self,
+                flags=Gtk.DialogFlags.MODAL
+            )
+            progress_dialog.set_default_size(400, 150)
+            
+            box = progress_dialog.get_content_area()
+            box.set_spacing(10)
+            box.set_margin_start(20)
+            box.set_margin_end(20)
+            box.set_margin_top(20)
+            box.set_margin_bottom(20)
+            
+            progress_label = Gtk.Label(label="Iniciando instalación...")
+            box.pack_start(progress_label, False, False, 0)
+            
+            progress_bar = Gtk.ProgressBar()
+            progress_bar.set_show_text(True)
+            box.pack_start(progress_bar, False, False, 0)
+            
+            progress_dialog.show_all()
+            
+            # Instalar en thread
+            def install_thread():
+                def progress_callback(fraction, text):
+                    GLib.idle_add(progress_bar.set_fraction, fraction)
+                    GLib.idle_add(progress_bar.set_text, f"{int(fraction*100)}%")
+                    GLib.idle_add(progress_label.set_text, text)
                 
-                # Actualizar estado
-                self._detect_stack()
-                self._update_statusbar(f"PHP {selected_version} instalado correctamente")
+                success, message = self.php_manager.install_php_version(
+                    selected_version,
+                    with_fpm=True,
+                    progress_callback=progress_callback
+                )
+                GLib.idle_add(self._on_php_install_complete, success, message, progress_dialog)
+            
+            thread = threading.Thread(target=install_thread, daemon=True)
+            thread.start()
+            
         except Exception as e:
             logger.error(f"Error instalando PHP: {e}", exc_info=True)
+            self.is_busy = False
+            self.set_sensitive(True)
             self._show_error("Error", f"No se pudo instalar PHP: {str(e)}")
     
     def _on_install_single_component(self, button, component: str) -> None:
@@ -1134,6 +1451,10 @@ class MainWindow(Gtk.Window):
     
     def _on_uninstall_component(self, button, component: str) -> None:
         """Handler para desinstalar un componente."""
+        if self.is_busy:
+            self._show_error("Operación en curso", "Espere a que termine la operación actual")
+            return
+        
         try:
             # Obtener nombre del componente
             comp_info = self.installed_components.get(component)
@@ -1157,36 +1478,291 @@ class MainWindow(Gtk.Window):
             dialog.destroy()
             
             if response == Gtk.ResponseType.YES:
+                # Crear diálogo de progreso
+                progress_dialog = Gtk.MessageDialog(
+                    transient_for=self,
+                    flags=0,
+                    message_type=Gtk.MessageType.INFO,
+                    buttons=Gtk.ButtonsType.NONE,
+                    text=f"Desinstalando {comp_info.display_name}"
+                )
+                progress_dialog.format_secondary_text("Por favor espere...")
+                
+                spinner = Gtk.Spinner()
+                spinner.start()
+                spinner.set_margin_top(10)
+                spinner.set_margin_bottom(10)
+                content = progress_dialog.get_content_area()
+                content.pack_start(spinner, False, False, 0)
+                progress_dialog.show_all()
+                
+                # Bloquear ventana principal
+                self.is_busy = True
+                self.set_sensitive(False)
                 self._update_statusbar(f"Desinstalando {comp_info.display_name}...")
                 
-                # Desinstalar en thread separado para no bloquear UI
+                # Desinstalar en thread separado
                 def uninstall_thread():
                     try:
                         from core import StackInstaller
                         installer = StackInstaller()
                         success, msg = installer.uninstall_component(component)
                         
-                        def update_ui():
-                            if success:
-                                self._update_statusbar(f"{comp_info.display_name} desinstalado correctamente")
-                                # Re-detectar componentes
-                                self._detect_stack()
-                            else:
-                                self._show_error("Error al desinstalar", msg)
-                                self._update_statusbar("Error en desinstalación")
-                            return False
-                        
-                        GLib.idle_add(update_ui)
+                        GLib.idle_add(self._on_uninstall_complete, success, msg, comp_info.display_name, progress_dialog)
                     except Exception as e:
-                        logger.error(f"Error en thread de desinstalación: {e}", exc_info=True)
-                        GLib.idle_add(self._show_error, "Error", str(e))
+                        logger.error(f"Error desinstalando: {e}", exc_info=True)
+                        GLib.idle_add(self._on_uninstall_complete, False, str(e), comp_info.display_name, progress_dialog)
                 
-                thread = threading.Thread(target=uninstall_thread)
-                thread.daemon = True
+                thread = threading.Thread(target=uninstall_thread, daemon=True)
                 thread.start()
         except Exception as e:
             logger.error(f"Error desinstalando {component}: {e}", exc_info=True)
             self._show_error("Error", f"No se pudo desinstalar {component}: {str(e)}")
+    
+    def _on_uninstall_complete(self, success: bool, message: str, component_name: str, progress_dialog) -> bool:
+        """Callback cuando termina la desinstalación."""
+        # Cerrar diálogo de progreso
+        progress_dialog.destroy()
+        
+        # Desbloquear ventana
+        self.is_busy = False
+        self.set_sensitive(True)
+        
+        if success:
+            self._update_statusbar(f"✓ {component_name} desinstalado correctamente")
+            logger.info(f"Desinstalación exitosa de {component_name}, re-detectando componentes...")
+            
+            # Forzar re-detección completa del stack
+            # Esto limpiará el cache y volverá a verificar todos los componentes
+            try:
+                # Re-crear detector para limpiar cualquier cache
+                self.stack_detector = StackDetector()
+                
+                # Detectar nuevamente
+                components = self.stack_detector.detect_all()
+                self.installed_components = components
+                
+                logger.info(f"Re-detección completada: {len(components)} componentes encontrados")
+                
+                # Actualizar BD con nuevo estado
+                for name, component in components.items():
+                    try:
+                        self.db.execute("""
+                            UPDATE stack_components 
+                            SET installed = ?, version = ?, last_check = CURRENT_TIMESTAMP
+                            WHERE name = ?
+                        """, (int(component.installed), component.version, name))
+                        logger.debug(f"BD actualizada: {name} -> installed={component.installed}")
+                    except Exception as db_err:
+                        logger.error(f"Error actualizando BD para {name}: {db_err}")
+                
+                # Actualizar UI con el nuevo estado
+                self._update_stack_ui(components)
+                self._update_php_ui()
+                self._update_services_status()
+                
+                self._show_info("Desinstalación exitosa", message)
+                logger.info("UI actualizada correctamente después de desinstalación")
+                
+            except Exception as e:
+                logger.error(f"Error re-detectando después de desinstalar: {e}", exc_info=True)
+                self._show_warning("Desinstalación completada", 
+                    f"{message}\n\nNota: Reinicia la aplicación para ver los cambios.")
+        else:
+            self._update_statusbar(f"✗ Error desinstalando {component_name}")
+            self._show_error("Error al desinstalar", message)
+        
+        return False
+    
+    def _load_vhosts(self) -> None:
+        """Carga los hosts virtuales desde la base de datos."""
+        try:
+            logger.info("Cargando hosts virtuales desde la base de datos...")
+            
+            # Limpiar lista
+            for child in self.vhosts_listbox.get_children():
+                self.vhosts_listbox.remove(child)
+            
+            # Obtener vhosts de la BD
+            vhosts = self.db.get_all_vhosts()
+            
+            logger.info(f"Se encontraron {len(vhosts)} hosts virtuales")
+            
+            if not vhosts:
+                # Mostrar mensaje cuando no hay vhosts
+                row = Gtk.ListBoxRow()
+                vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+                vbox.set_margin_top(40)
+                vbox.set_margin_bottom(40)
+                
+                icon = Gtk.Image.new_from_icon_name("network-server-symbolic", Gtk.IconSize.DIALOG)
+                vbox.pack_start(icon, False, False, 0)
+                
+                label = Gtk.Label(label="No hay hosts virtuales configurados")
+                label.set_margin_top(10)
+                vbox.pack_start(label, False, False, 0)
+                
+                hint = Gtk.Label()
+                hint.set_markup("<small>Haz clic en <b>Nuevo VHost</b> para crear uno</small>")
+                vbox.pack_start(hint, False, False, 0)
+                
+                row.add(vbox)
+                self.vhosts_listbox.add(row)
+            else:
+                for vhost in vhosts:
+                    row = self._create_vhost_row(vhost)
+                    self.vhosts_listbox.add(row)
+            
+            self.vhosts_listbox.show_all()
+            
+        except Exception as e:
+            logger.error(f"Error cargando vhosts: {e}", exc_info=True)
+    
+    def _create_vhost_row(self, vhost: VirtualHost) -> Gtk.ListBoxRow:
+        """Crea una fila para un host virtual."""
+        row = Gtk.ListBoxRow()
+        row.set_can_focus(False)
+        
+        hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        hbox.set_margin_start(15)
+        hbox.set_margin_end(15)
+        hbox.set_margin_top(12)
+        hbox.set_margin_bottom(12)
+        
+        # Icono
+        icon = Gtk.Image.new_from_icon_name("network-server", Gtk.IconSize.DND)
+        hbox.pack_start(icon, False, False, 0)
+        
+        # Información del vhost
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        
+        # Nombre y dominio
+        name_label = Gtk.Label()
+        name_label.set_markup(f"<b>{vhost.server_name}</b>")
+        name_label.set_halign(Gtk.Align.START)
+        vbox.pack_start(name_label, False, False, 0)
+        
+        # Ruta y PHP
+        info_label = Gtk.Label()
+        php_info = f"PHP {vhost.php_version}" if vhost.php_version else "PHP por defecto"
+        info_label.set_markup(f"<small>{vhost.document_root} • {php_info}</small>")
+        info_label.set_halign(Gtk.Align.START)
+        info_label.get_style_context().add_class("dim-label")
+        vbox.pack_start(info_label, False, False, 0)
+        
+        hbox.pack_start(vbox, True, True, 0)
+        
+        # Estado
+        status_label = Gtk.Label()
+        if vhost.enabled:
+            status_label.set_markup("<span foreground='#10b981'>● Habilitado</span>")
+        else:
+            status_label.set_markup("<span foreground='#6b7280'>○ Deshabilitado</span>")
+        hbox.pack_start(status_label, False, False, 10)
+        
+        # Botones de acción
+        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        
+        # Abrir en navegador
+        open_btn = Gtk.Button.new_from_icon_name("web-browser", Gtk.IconSize.BUTTON)
+        open_btn.set_tooltip_text(f"Abrir http://{vhost.server_name}")
+        open_btn.connect("clicked", self._on_open_vhost_browser, vhost.server_name)
+        btn_box.pack_start(open_btn, False, False, 0)
+        
+        # Abrir carpeta
+        folder_btn = Gtk.Button.new_from_icon_name("folder", Gtk.IconSize.BUTTON)
+        folder_btn.set_tooltip_text("Abrir carpeta del sitio")
+        folder_btn.connect("clicked", self._on_open_vhost_folder, vhost.document_root)
+        btn_box.pack_start(folder_btn, False, False, 0)
+        
+        # Eliminar
+        delete_btn = Gtk.Button.new_from_icon_name("user-trash", Gtk.IconSize.BUTTON)
+        delete_btn.set_tooltip_text("Eliminar host virtual")
+        delete_btn.get_style_context().add_class("destructive-action")
+        delete_btn.connect("clicked", self._on_delete_vhost, vhost)
+        btn_box.pack_start(delete_btn, False, False, 0)
+        
+        hbox.pack_start(btn_box, False, False, 0)
+        
+        row.add(hbox)
+        return row
+    
+    def _on_open_vhost_browser(self, button, domain: str) -> None:
+        """Abre el vhost en el navegador."""
+        try:
+            import webbrowser
+            webbrowser.open(f"http://{domain}")
+        except Exception as e:
+            logger.error(f"Error abriendo navegador: {e}")
+            self._show_error("Error", f"No se pudo abrir el navegador: {str(e)}")
+    
+    def _on_open_vhost_folder(self, button, path: str) -> None:
+        """Abre la carpeta del vhost."""
+        try:
+            if os.path.exists(path):
+                subprocess.Popen(['xdg-open', path])
+            else:
+                self._show_error("Carpeta no encontrada", f"La carpeta {path} no existe")
+        except Exception as e:
+            logger.error(f"Error abriendo carpeta: {e}")
+            self._show_error("Error", f"No se pudo abrir la carpeta: {str(e)}")
+    
+    def _on_delete_vhost(self, button, vhost: VirtualHost) -> None:
+        """Elimina un host virtual."""
+        if self.is_busy:
+            self._show_error("Operación en curso", "Espere a que termine la operación actual")
+            return
+        
+        dialog = Gtk.MessageDialog(
+            transient_for=self,
+            flags=0,
+            message_type=Gtk.MessageType.WARNING,
+            buttons=Gtk.ButtonsType.YES_NO,
+            text=f"Eliminar {vhost.server_name}"
+        )
+        dialog.format_secondary_text(
+            f"¿Está seguro que desea eliminar el host virtual?\n\n"
+            f"Esto eliminará:\n"
+            f"• Configuración de Apache\n"
+            f"• Entrada en /etc/hosts\n\n"
+            f"Los archivos en {vhost.document_root} NO serán eliminados."
+        )
+        response = dialog.run()
+        dialog.destroy()
+        
+        if response == Gtk.ResponseType.YES:
+            self.is_busy = True
+            self.set_sensitive(False)
+            self._update_statusbar(f"Eliminando {vhost.server_name}...")
+            
+            def delete_thread():
+                try:
+                    success, message = self.vhost_manager.delete_vhost(vhost.name, vhost.server_name)
+                    
+                    GLib.idle_add(self._on_vhost_deleted, success, message, vhost)
+                except Exception as e:
+                    logger.error(f"Error eliminando vhost: {e}", exc_info=True)
+                    GLib.idle_add(self._on_vhost_deleted, False, str(e), vhost)
+            
+            thread = threading.Thread(target=delete_thread, daemon=True)
+            thread.start()
+    
+    def _on_vhost_deleted(self, success: bool, message: str, vhost: VirtualHost) -> bool:
+        """Callback cuando se elimina un vhost."""
+        self.is_busy = False
+        self.set_sensitive(True)
+        
+        if success:
+            # Eliminar de base de datos
+            self.db.delete_vhost(vhost.id)
+            self._update_statusbar(f"✓ {message}")
+            self._show_info("Éxito", message)
+            self._load_vhosts()
+        else:
+            self._update_statusbar(f"✗ Error: {message}")
+            self._show_error("Error eliminando host virtual", message)
+        
+        return False
     
     def _on_install_stack_clicked(self, button) -> None:
         """Handler para instalar stack."""
@@ -1213,4 +1789,336 @@ class MainWindow(Gtk.Window):
         """Handler para guardar configuración."""
         backup_path = self.backup_path_entry.get_text()
         self.db.set_config('backup_path', backup_path)
+        
+        # Actualizar ruta del backup manager
+        self.backup_manager.backup_dir = Path(backup_path)
+        for dir_name in ['databases', 'configs', 'vhosts']:
+            (self.backup_manager.backup_dir / dir_name).mkdir(parents=True, exist_ok=True)
+        
         self._update_statusbar("Configuración guardada")
+        self._show_info("Éxito", "Configuración guardada correctamente")
+    
+    def _update_backup_stats(self) -> bool:
+        """Actualiza las estadísticas de backups."""
+        try:
+            stats = self.backup_manager.get_backup_stats()
+            
+            markup = (
+                f"<b>Estadísticas de Backups:</b>\n"
+                f"  • Total: {stats.get('total_backups', 0)} backups\n"
+                f"  • Bases de datos: {stats.get('database_backups', 0)}\n"
+                f"  • Configuraciones: {stats.get('config_backups', 0)}\n"
+                f"  • Virtual hosts: {stats.get('vhost_backups', 0)}\n"
+                f"  • Espacio: {stats.get('total_size_mb', 0):.2f} MB"
+            )
+            
+            self.backup_stats_label.set_markup(markup)
+            
+        except Exception as e:
+            logger.error(f"Error actualizando estadísticas: {e}", exc_info=True)
+            self.backup_stats_label.set_markup("<span foreground='#e74c3c'>Error cargando estadísticas</span>")
+        
+        return False
+    
+    def _on_backup_database_clicked(self, button) -> None:
+        """Handler para crear backup de base de datos."""
+        if self.is_busy:
+            self._show_error("Operación en curso", "Espere a que termine la operación actual")
+            return
+        
+        # Diálogo para solicitar contraseña
+        dialog = Gtk.Dialog(
+            title="Backup Base de Datos",
+            transient_for=self,
+            flags=0
+        )
+        dialog.add_buttons(
+            Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
+            Gtk.STOCK_OK, Gtk.ResponseType.OK
+        )
+        
+        box = dialog.get_content_area()
+        box.set_spacing(10)
+        box.set_margin_start(10)
+        box.set_margin_end(10)
+        box.set_margin_top(10)
+        box.set_margin_bottom(10)
+        
+        label = Gtk.Label(label="Ingrese la contraseña de root de MySQL/MariaDB:")
+        box.pack_start(label, False, False, 0)
+        
+        password_entry = Gtk.Entry()
+        password_entry.set_visibility(False)
+        password_entry.set_width_chars(30)
+        box.pack_start(password_entry, False, False, 0)
+        
+        dialog.show_all()
+        response = dialog.run()
+        password = password_entry.get_text()
+        dialog.destroy()
+        
+        if response != Gtk.ResponseType.OK:
+            return
+        
+        # Ejecutar backup en thread
+        self.is_busy = True
+        self.set_sensitive(False)
+        self._update_statusbar("Creando backup de base de datos...")
+        
+        def backup_thread():
+            try:
+                success, message = self.backup_manager.backup_all_mysql_databases(
+                    user='root',
+                    password=password if password else None
+                )
+                GLib.idle_add(self._on_backup_complete, success, message, 'database')
+            except Exception as e:
+                logger.error(f"Error en thread de backup: {e}", exc_info=True)
+                GLib.idle_add(self._on_backup_complete, False, str(e), 'database')
+        
+        thread = threading.Thread(target=backup_thread, daemon=True)
+        thread.start()
+    
+    def _on_backup_apache_clicked(self, button) -> None:
+        """Handler para crear backup de configuración Apache."""
+        if self.is_busy:
+            self._show_error("Operación en curso", "Espere a que termine la operación actual")
+            return
+        
+        self.is_busy = True
+        self.set_sensitive(False)
+        self._update_statusbar("Creando backup de configuración Apache...")
+        
+        def backup_thread():
+            try:
+                success, message = self.backup_manager.backup_apache_config()
+                GLib.idle_add(self._on_backup_complete, success, message, 'config')
+            except Exception as e:
+                logger.error(f"Error en thread de backup: {e}", exc_info=True)
+                GLib.idle_add(self._on_backup_complete, False, str(e), 'config')
+        
+        thread = threading.Thread(target=backup_thread, daemon=True)
+        thread.start()
+    
+    def _on_cleanup_backups_clicked(self, button) -> None:
+        """Handler para limpiar backups antiguos."""
+        if self.is_busy:
+            self._show_error("Operación en curso", "Espere a que termine la operación actual")
+            return
+        
+        # Diálogo de confirmación
+        dialog = Gtk.MessageDialog(
+            transient_for=self,
+            flags=0,
+            message_type=Gtk.MessageType.QUESTION,
+            buttons=Gtk.ButtonsType.YES_NO,
+            text="Limpiar backups antiguos"
+        )
+        dialog.format_secondary_text(
+            "Se eliminarán backups con más de 7 días de antigüedad y se mantendrán solo los últimos 10.\n"
+            "¿Desea continuar?"
+        )
+        response = dialog.run()
+        dialog.destroy()
+        
+        if response != Gtk.ResponseType.YES:
+            return
+        
+        self._update_statusbar("Limpiando backups antiguos...")
+        
+        def cleanup_thread():
+            try:
+                deleted, message = self.backup_manager.clean_old_backups(days_to_keep=7, max_backups=10)
+                GLib.idle_add(self._on_cleanup_complete, deleted, message)
+            except Exception as e:
+                logger.error(f"Error en limpieza: {e}", exc_info=True)
+                GLib.idle_add(self._on_cleanup_complete, 0, str(e))
+        
+        thread = threading.Thread(target=cleanup_thread, daemon=True)
+        thread.start()
+    
+    def _on_backup_complete(self, success: bool, message: str, backup_type: str) -> bool:
+        """Callback cuando termina un backup."""
+        self.is_busy = False
+        self.set_sensitive(True)
+        
+        if success:
+            self._update_statusbar(f"✓ {message}")
+            self._show_info("Backup Completo", message)
+        else:
+            self._update_statusbar(f"✗ Error: {message}")
+            self._show_error("Error en Backup", message)
+        
+        # Actualizar estadísticas
+        self._update_backup_stats()
+        return False
+    
+    def _on_cleanup_complete(self, deleted: int, message: str) -> bool:
+        """Callback cuando termina la limpieza de backups."""
+        self._update_statusbar(message)
+        self._show_info("Limpieza Completa", message)
+        self._update_backup_stats()
+        return False
+    
+    def _auto_cleanup_backups(self) -> bool:
+        """Limpieza automática de backups (ejecutada por timer)."""
+        try:
+            # Solo si está habilitado
+            if self.db.get_config('backup_enabled') != '1':
+                return True  # Continuar timer
+            
+            logger.info("Ejecutando limpieza automática de backups")
+            deleted, message = self.backup_manager.clean_old_backups(days_to_keep=7, max_backups=10)
+            
+            if deleted > 0:
+                logger.info(f"Limpieza automática: {message}")
+            
+        except Exception as e:
+            logger.error(f"Error en limpieza automática: {e}", exc_info=True)
+        
+        return True  # Continuar ejecutando cada 24 horas
+    
+    def _on_php_install_complete(self, success: bool, message: str, progress_dialog: Gtk.Dialog) -> bool:
+        """Callback cuando termina la instalación de PHP."""
+        self.is_busy = False
+        self.set_sensitive(True)
+        progress_dialog.destroy()
+        
+        if success:
+            # Verificar que realmente se instaló antes de actualizar
+            installed_versions = self.php_manager.detect_installed_versions()
+            if installed_versions:
+                self._update_statusbar(f"✓ {message}")
+                self._show_info("Instalación Completa", message)
+                # Actualizar UI de PHP
+                self._update_php_ui()
+                # Actualizar detección de stack
+                self._detect_stack()
+            else:
+                # Falló la instalación aunque el script retornó success
+                self._update_statusbar("✗ Error: Instalación falló")
+                self._show_error(
+                    "Error en Instalación",
+                    "La instalación reportó éxito pero PHP no está disponible.\n\n"
+                    "Posibles causas:\n"
+                    "• Ejecutando en Flatpak sin permisos al sistema\n"
+                    "• Repositorios no actualizados\n"
+                    "• Errores de dependencias\n\n"
+                    "Intenta instalar manualmente:\n"
+                    "sudo apt update\n"
+                    "sudo apt install php8.3 php8.3-fpm php8.3-mysql"
+                )
+        else:
+            self._update_statusbar(f"✗ Error: {message}")
+            self._show_error(
+                "Error en Instalación", 
+                f"{message}\n\n"
+                "Si el problema persiste, revisa los logs:\n"
+                "tail -f logs/lamp_manager.log"
+            )
+        
+        return False
+    
+    def _on_uninstall_php_version(self, button, version: str) -> None:
+        """Handler para desinstalar una versión de PHP."""
+        if self.is_busy:
+            self._show_error("Operación en curso", "Espere a que termine la operación actual")
+            return
+        
+        # Confirmar desinstalación
+        dialog = Gtk.MessageDialog(
+            transient_for=self,
+            flags=0,
+            message_type=Gtk.MessageType.WARNING,
+            buttons=Gtk.ButtonsType.YES_NO,
+            text=f"Desinstalar PHP {version}"
+        )
+        dialog.format_secondary_text(
+            f"¿Está seguro que desea desinstalar PHP {version}?\n\n"
+            "Se eliminarán todos los paquetes relacionados con esta versión.\n"
+            "Los virtual hosts que usen esta versión dejarán de funcionar."
+        )
+        response = dialog.run()
+        dialog.destroy()
+        
+        if response != Gtk.ResponseType.YES:
+            return
+        
+        # Bloquear UI y mostrar progreso
+        self.is_busy = True
+        self.set_sensitive(False)
+        
+        # Crear diálogo de progreso
+        progress_dialog = Gtk.Dialog(
+            title=f"Desinstalando PHP {version}",
+            transient_for=self,
+            flags=Gtk.DialogFlags.MODAL
+        )
+        progress_dialog.set_default_size(400, 150)
+        
+        box = progress_dialog.get_content_area()
+        box.set_spacing(10)
+        box.set_margin_start(20)
+        box.set_margin_end(20)
+        box.set_margin_top(20)
+        box.set_margin_bottom(20)
+        
+        progress_label = Gtk.Label(label="Iniciando desinstalación...")
+        box.pack_start(progress_label, False, False, 0)
+        
+        progress_bar = Gtk.ProgressBar()
+        progress_bar.set_show_text(True)
+        box.pack_start(progress_bar, False, False, 0)
+        
+        progress_dialog.show_all()
+        
+        # Desinstalar en thread
+        def uninstall_thread():
+            def progress_callback(fraction, text):
+                GLib.idle_add(progress_bar.set_fraction, fraction)
+                GLib.idle_add(progress_bar.set_text, f"{int(fraction*100)}%")
+                GLib.idle_add(progress_label.set_text, text)
+            
+            success, message = self.php_manager.uninstall_php_version(
+                version,
+                progress_callback=progress_callback
+            )
+            GLib.idle_add(self._on_php_uninstall_complete, success, message, progress_dialog)
+        
+        thread = threading.Thread(target=uninstall_thread, daemon=True)
+        thread.start()
+    
+    def _on_php_uninstall_complete(self, success: bool, message: str, progress_dialog: Gtk.Dialog) -> bool:
+        """Callback cuando termina la desinstalación de PHP."""
+        self.is_busy = False
+        self.set_sensitive(True)
+        progress_dialog.destroy()
+        
+        if success:
+            self._update_statusbar(f"✓ {message}")
+            self._show_info("Desinstalación Completa", message)
+            # Actualizar UI de PHP
+            self._update_php_ui()
+            # Actualizar detección de stack
+            self._detect_stack()
+        else:
+            self._update_statusbar(f"✗ Error: {message}")
+            self._show_error("Error en Desinstalación", message)
+        
+        return False
+    
+    def _on_set_default_php(self, button, version: str) -> None:
+        """Handler para establecer versión de PHP como predeterminada."""
+        try:
+            success, message = self.php_manager.set_default_version(version)
+            
+            if success:
+                self._update_statusbar(message)
+                self._show_info("Éxito", message)
+                self._update_php_ui()
+            else:
+                self._show_error("Error", message)
+                
+        except Exception as e:
+            logger.error(f"Error estableciendo versión predeterminada: {e}", exc_info=True)
+            self._show_error("Error", str(e))

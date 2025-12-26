@@ -1,0 +1,22 @@
+# Incluir archivos adicionales en el paquete
+include README.md
+include LICENSE
+include requirements.txt
+include icon.png
+include run.sh
+include install_polkit_rules.sh
+
+# Recursos
+recursive-include resources *
+recursive-include data *
+recursive-include scripts *
+
+# Excluir archivos innecesarios
+exclude diagnose_php.py
+exclude fix_php_vhost.sh
+recursive-exclude backups *
+recursive-exclude logs *
+recursive-exclude .git *
+global-exclude __pycache__
+global-exclude *.py[co]
+global-exclude .DS_Store

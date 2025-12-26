@@ -6,6 +6,7 @@ Detección automática de componentes del stack LAMP instalados.
 import subprocess
 import logging
 import re
+import os
 from typing import Optional, Dict, List
 from pathlib import Path
 
@@ -21,6 +22,118 @@ class StackDetector:
         """Inicializa el detector."""
         self.components: Dict[str, StackComponent] = {}
         self.php_versions: List[PHPVersion] = []
+        self.use_flatpak = os.path.exists('/.flatpak-info')
+        
+        # Detectar sistema de gestión de paquetes disponible
+        self.pkg_manager = self._detect_package_manager()
+        
+        if self.use_flatpak:
+            logger.info("Detectando desde Flatpak - usando flatpak-spawn --host")
+        logger.info(f"Sistema de paquetes detectado: {self.pkg_manager or 'ninguno (usando solo which)'}")
+    
+    def _build_command(self, cmd: list) -> list:
+        """Construye el comando con flatpak-spawn si es necesario."""
+        if self.use_flatpak and cmd[0] not in ['flatpak-spawn']:
+            return ['flatpak-spawn', '--host'] + cmd
+        return cmd
+    
+    def _detect_package_manager(self) -> Optional[str]:
+        """Detecta qué sistema de gestión de paquetes está disponible."""
+        managers = {
+            'dpkg': ['dpkg', '--version'],
+            'rpm': ['rpm', '--version'],
+            'pacman': ['pacman', '--version']
+        }
+        
+        for name, cmd in managers.items():
+            try:
+                # Intentar directamente
+                result = subprocess.run(cmd, capture_output=True, timeout=2)
+                if result.returncode == 0:
+                    logger.info(f"Sistema de paquetes {name} disponible")
+                    return name
+            except FileNotFoundError:
+                # Si no se encuentra, intentar con flatpak-spawn
+                try:
+                    result = subprocess.run(['flatpak-spawn', '--host'] + cmd, 
+                                          capture_output=True, timeout=2)
+                    if result.returncode == 0:
+                        logger.info(f"Sistema de paquetes {name} disponible (vía flatpak-spawn)")
+                        return name
+                except:
+                    pass
+            except:
+                pass
+        
+        logger.warning("No se detectó sistema de paquetes (dpkg/rpm/pacman) - usando solo 'which'")
+        return None
+    
+    def _check_package_installed(self, package: str) -> Optional[bool]:
+        """
+        Verifica si un paquete está instalado usando el gestor de paquetes disponible.
+        Intenta primero directamente, luego con flatpak-spawn si es necesario.
+        
+        Returns:
+            True: paquete instalado
+            False: paquete NO instalado (verificado)
+            None: no se pudo verificar (gestor no disponible)
+        """
+        if not self.pkg_manager or not package:
+            return None
+        
+        try:
+            if self.pkg_manager == 'dpkg':
+                # Intentar ambos métodos: directo y con flatpak-spawn
+                for cmd in [['dpkg', '-l', package], 
+                           ['flatpak-spawn', '--host', 'dpkg', '-l', package]]:
+                    try:
+                        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+                        
+                        if result.returncode == 0:
+                            # Buscar líneas que empiecen con 'ii' (instalado)
+                            # Formato dpkg: "ii  nombre-paquete  version..."
+                            is_installed = any(line.startswith('ii ') for line in result.stdout.split('\n'))
+                            logger.info(f"dpkg ({cmd[0]}): {package} = {'instalado' if is_installed else 'no instalado'}")
+                            return is_installed
+                    except FileNotFoundError:
+                        logger.info(f"Comando {cmd[0]} no encontrado, probando siguiente método...")
+                        continue  # Intentar siguiente método
+                    except Exception as e:
+                        logger.info(f"Error con {cmd[0]}: {e}")
+                        continue
+                
+                return False  # Ningún método funcionó
+                
+            elif self.pkg_manager == 'rpm':
+                for cmd in [['rpm', '-q', package],
+                           ['flatpak-spawn', '--host', 'rpm', '-q', package]]:
+                    try:
+                        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+                        if result.returncode == 0:
+                            return True
+                    except FileNotFoundError:
+                        continue
+                    except:
+                        continue
+                return False
+                
+            elif self.pkg_manager == 'pacman':
+                for cmd in [['pacman', '-Q', package],
+                           ['flatpak-spawn', '--host', 'pacman', '-Q', package]]:
+                    try:
+                        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+                        if result.returncode == 0:
+                            return True
+                    except FileNotFoundError:
+                        continue
+                    except:
+                        continue
+                return False
+                
+        except Exception as e:
+            logger.debug(f"Error verificando paquete {package}: {e}")
+        
+        return None
     
     def detect_all(self) -> Dict[str, StackComponent]:
         """
@@ -74,20 +187,31 @@ class StackDetector:
         )
         
         try:
-            # Verificar si apache2 está instalado
+            # Verificar con gestor de paquetes si está disponible
+            pkg_installed = self._check_package_installed('apache2')
+            
+            # Si el gestor dice definitivamente que NO está instalado
+            if pkg_installed is False:
+                logger.info("Apache no está instalado (verificado con gestor de paquetes)")
+                return component
+            
+            # Verificar si apache2 está disponible
+            which_cmd = self._build_command(['which', 'apache2'])
             result = subprocess.run(
-                ['which', 'apache2'],
+                which_cmd,
                 capture_output=True,
                 text=True,
                 timeout=5
             )
             
-            if result.returncode == 0:
+            # Está instalado si: pkg_manager dice SÍ OR which lo encuentra
+            if result.returncode == 0 or pkg_installed is True:
                 component.installed = True
                 
                 # Obtener versión
+                version_cmd = self._build_command(['apache2', '-v'])
                 version_result = subprocess.run(
-                    ['apache2', '-v'],
+                    version_cmd,
                     capture_output=True,
                     text=True,
                     timeout=5
@@ -116,20 +240,39 @@ class StackDetector:
         )
         
         try:
+            # Verificar con gestor de paquetes si está disponible
+            pkg_installed = None
+            for pkg in ['mysql-server', 'mariadb-server']:
+                result = self._check_package_installed(pkg)
+                if result is True:
+                    pkg_installed = True
+                    component.package_name = pkg
+                    break
+                elif result is False:
+                    pkg_installed = False
+            
+            # Si el gestor dice definitivamente que NO está instalado
+            if pkg_installed is False:
+                logger.info("MySQL no está instalado (verificado con gestor de paquetes)")
+                return component
+            
             # Intentar detectar MySQL
+            which_cmd = self._build_command(['which', 'mysql'])
             result = subprocess.run(
-                ['which', 'mysql'],
+                which_cmd,
                 capture_output=True,
                 text=True,
                 timeout=5
             )
             
-            if result.returncode == 0:
+            # Está instalado si: pkg_manager dice SÍ OR which lo encuentra
+            if result.returncode == 0 or pkg_installed is True:
                 component.installed = True
                 
                 # Obtener versión
+                version_cmd = self._build_command(['mysql', '--version'])
                 version_result = subprocess.run(
-                    ['mysql', '--version'],
+                    version_cmd,
                     capture_output=True,
                     text=True,
                     timeout=5
@@ -164,8 +307,9 @@ class StackDetector:
         
         try:
             # Verificar si PHP está instalado
+            which_cmd = self._build_command(['which', 'php'])
             result = subprocess.run(
-                ['which', 'php'],
+                which_cmd,
                 capture_output=True,
                 text=True,
                 timeout=5
@@ -175,8 +319,9 @@ class StackDetector:
                 component.installed = True
                 
                 # Obtener versión
+                version_cmd = self._build_command(['php', '-v'])
                 version_result = subprocess.run(
-                    ['php', '-v'],
+                    version_cmd,
                     capture_output=True,
                     text=True,
                     timeout=5
@@ -219,8 +364,9 @@ class StackDetector:
                             
                             # Verificar que sea ejecutable
                             try:
+                                version_cmd = self._build_command([str(php_bin), '-v'])
                                 result = subprocess.run(
-                                    [str(php_bin), '-v'],
+                                    version_cmd,
                                     capture_output=True,
                                     text=True,
                                     timeout=5
@@ -267,7 +413,7 @@ class StackDetector:
     
     def _detect_generic(self, comp_id: str, binary: str, package: str, service: Optional[str]) -> StackComponent:
         """
-        Detección genérica de componentes por binario.
+        Detección genérica de componentes por binario y paquete.
         
         Args:
             comp_id: ID del componente
@@ -285,39 +431,62 @@ class StackDetector:
         )
         
         try:
-            # Verificar si el binario está disponible
-            result = subprocess.run(
-                ['which', binary],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
+            # Verificar con gestor de paquetes si está disponible
+            pkg_installed = self._check_package_installed(package)
             
-            if result.returncode == 0:
+            # Si el gestor dice definitivamente que NO está instalado
+            if pkg_installed is False:
+                logger.debug(f"{comp_id} no instalado (verificado con gestor de paquetes)")
+                return component
+            
+            # Verificar si el binario está disponible
+            binary_found = False
+            binary_path = None
+            try:
+                which_cmd = self._build_command(['which', binary])
+                result = subprocess.run(
+                    which_cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                
+                if result.returncode == 0:
+                    binary_found = True
+                    binary_path = result.stdout.strip()
+            except:
+                pass
+            
+            # Componente instalado si: pkg_manager dice SÍ OR which lo encuentra
+            if pkg_installed is True or binary_found:
                 component.installed = True
-                component.path = result.stdout.strip()
+                component.path = binary_path
                 
                 # Intentar obtener versión con --version
-                try:
-                    version_result = subprocess.run(
-                        [binary, '--version'],
-                        capture_output=True,
-                        text=True,
-                        timeout=5
-                    )
-                    
-                    if version_result.returncode == 0:
-                        # Buscar patrones comunes de versión
-                        version_match = re.search(
-                            r'(\d+\.\d+(?:\.\d+)?)',
-                            version_result.stdout
+                if binary_found:
+                    try:
+                        version_cmd = self._build_command([binary, '--version'])
+                        version_result = subprocess.run(
+                            version_cmd,
+                            capture_output=True,
+                            text=True,
+                            timeout=5
                         )
-                        if version_match:
-                            component.version = version_match.group(1)
-                except:
-                    pass
+                        
+                        if version_result.returncode == 0:
+                            # Buscar patrones comunes de versión
+                            version_match = re.search(
+                                r'(\d+\.\d+(?:\.\d+)?)',
+                                version_result.stdout
+                            )
+                            if version_match:
+                                component.version = version_match.group(1)
+                    except:
+                        pass
                 
-                logger.debug(f"{comp_id} detectado: {component.version or 'instalado'}")
+                logger.debug(f"{comp_id} detectado: pkg_manager={pkg_installed}, binary={binary_found}, version={component.version or 'desconocida'}")
+            else:
+                logger.debug(f"{comp_id} no instalado")
             
         except Exception as e:
             logger.debug(f"Error detectando {comp_id}: {e}")

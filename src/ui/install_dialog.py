@@ -111,6 +111,11 @@ class InstallDialog(Gtk.Dialog):
         self.checkboxes = {}
         
         for comp_id, comp_info in self.installer.COMPONENTS.items():
+            # Solo filtrar el paquete base PHP (se gestiona en pestaña PHP)
+            # Las herramientas relacionadas se mantienen disponibles
+            if comp_id == 'php':
+                continue
+            
             # Verificar si está instalado
             is_installed = (comp_id in self.installed_components and 
                           self.installed_components[comp_id].installed)

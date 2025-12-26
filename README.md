@@ -27,6 +27,22 @@ Aplicación GUI para gestionar el stack LAMP en Linux con soporte Flatpak.
 python3 src/main.py
 ```
 
+## Configuración Opcional
+
+### Evitar solicitudes repetidas de contraseña
+
+Para evitar que PolicyKit solicite contraseña en cada operación de Apache:
+
+```bash
+# Instalar reglas de PolicyKit
+./install_polkit_rules.sh
+
+# Reiniciar PolicyKit (opcional)
+sudo systemctl restart polkit
+```
+
+Esto permite que usuarios del grupo `sudo` gestionen Apache sin solicitudes repetidas de contraseña.
+
 ## Componentes Disponibles
 
 **Servidores:** Apache, MySQL, MariaDB  

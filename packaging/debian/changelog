@@ -1,0 +1,12 @@
+xlamp (1.0.0) stable; urgency=medium
+
+  * Initial release
+  * Gestión completa del stack LAMP
+  * Hosts virtuales con dominios .test
+  * Múltiples versiones de PHP
+  * Sistema de respaldos
+  * Interfaz optimizada para pantallas pequeñas
+  * Detección multi-plataforma (dpkg/rpm/pacman)
+  * Compatible con Flatpak
+
+ -- Jorge <tu-email@example.com>  Thu, 26 Dec 2024 12:00:00 -0400

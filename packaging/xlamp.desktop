@@ -1,0 +1,15 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=XLAMP Manager
+GenericName=LAMP Stack Manager
+Comment=Gestión completa del stack LAMP para Linux
+Comment[es]=Gestión completa del stack LAMP para Linux
+Comment[en]=Complete LAMP Stack Manager for Linux
+Icon=xlamp
+Exec=xlamp
+Terminal=false
+Categories=System;Settings;GTK;
+Keywords=lamp;apache;mysql;php;server;development;web;
+StartupNotify=true
+StartupWMClass=xlamp

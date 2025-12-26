@@ -330,6 +330,8 @@ class ServiceManager:
                 cmd = ['pkexec', self.service_cmd, service_name, 'restart']
             elif self.method == 'invoke-rc.d':
                 cmd = ['pkexec', self.invoke_rc, service_name, 'restart']
+            else:
+                return False, f"Método desconocido: {self.method}"
             
             logger.info(f"Ejecutando: {' '.join(cmd)}")
             result = subprocess.run(
@@ -341,26 +343,23 @@ class ServiceManager:
             
             if result.returncode == 0:
                 logger.info(f"✓ Servicio {service_name} reiniciado correctamente")
-                return True, f"Servicio {service_name} reiniciado"
+                return True, f"Servicio {service_name} reiniciado correctamente"
             else:
                 error_msg = result.stderr or result.stdout or "Error desconocido"
                 logger.error(f"✗ Error reiniciando {service_name}: {error_msg}")
-                return False, error_msg
+                return False, f"Error reiniciando servicio: {error_msg}"
                 
         except subprocess.TimeoutExpired:
-            msg = f"Timeout reiniciando {service_name}"
+            msg = f"Timeout reiniciando {service_name} (operación tardó más de 30 segundos)"
+            logger.error(msg)
+            return False, msg
+        except FileNotFoundError as e:
+            msg = f"Comando no encontrado: {e.filename}"
             logger.error(msg)
             return False, msg
         except Exception as e:
             msg = f"Error reiniciando {service_name}: {str(e)}"
             logger.error(msg, exc_info=True)
-            return False, msg
-            msg = f"Timeout iniciando {service_name}"
-            logger.error(msg)
-            return False, msg
-        except Exception as e:
-            msg = f"Error iniciando {service_name}: {str(e)}"
-            logger.error(msg)
             return False, msg
     
     def enable_service(self, service_name: str) -> tuple[bool, str]:

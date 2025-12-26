@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>XLAMP</vendor>
+  <vendor_url>https://github.com/tu-usuario/xlamp</vendor_url>
+
+  <action id="io.github.xlamp.manage-stack">
+    <description>Manage LAMP stack components</description>
+    <description xml:lang="es">Gestionar componentes del stack LAMP</description>
+    <message>Authentication is required to manage LAMP stack components</message>
+    <message xml:lang="es">Se requiere autenticación para gestionar componentes del stack LAMP</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/xlamp</annotate>
+  </action>
+
+  <action id="io.github.xlamp.manage-vhosts">
+    <description>Manage virtual hosts</description>
+    <description xml:lang="es">Gestionar hosts virtuales</description>
+    <message>Authentication is required to manage virtual hosts</message>
+    <message xml:lang="es">Se requiere autenticación para gestionar hosts virtuales</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+  </action>
+
+  <action id="io.github.xlamp.manage-services">
+    <description>Manage system services</description>
+    <description xml:lang="es">Gestionar servicios del sistema</description>
+    <message>Authentication is required to manage system services</message>
+    <message xml:lang="es">Se requiere autenticación para gestionar servicios del sistema</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+  </action>
+</policyconfig>

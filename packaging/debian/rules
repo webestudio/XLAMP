@@ -1,0 +1,25 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE = 1
+export PYBUILD_NAME = xlamp
+
+%:
+	dh $@ --with python3 --buildsystem=pybuild
+
+override_dh_auto_install:
+	dh_auto_install
+	# Instalar archivos adicionales
+	install -D -m 0644 icon.png debian/xlamp/usr/share/pixmaps/xlamp.png
+	install -D -m 0644 packaging/xlamp.desktop debian/xlamp/usr/share/applications/xlamp.desktop
+	install -D -m 0644 packaging/xlamp.policy debian/xlamp/usr/share/polkit-1/actions/io.github.xlamp.policy
+	# Crear directorio para datos
+	mkdir -p debian/xlamp/var/lib/xlamp
+	mkdir -p debian/xlamp/var/log/xlamp
+
+override_dh_installdocs:
+	dh_installdocs README.md
+
+override_dh_fixperms:
+	dh_fixperms
+	# Permisos especiales para scripts
+	chmod 755 debian/xlamp/usr/bin/xlamp
