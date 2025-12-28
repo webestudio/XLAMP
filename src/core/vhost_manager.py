@@ -52,6 +52,15 @@ class VHostManager:
             return ['flatpak-spawn', '--host'] + cmd
         return cmd
     
+    def _get_temp_dir(self) -> str:
+        """
+        Obtiene un directorio temporal accesible tanto por el host como por Flatpak.
+        """
+        # Usar un directorio en el home del usuario que sea accesible
+        temp_dir = os.path.join(os.path.expanduser('~'), '.xlamp_temp')
+        os.makedirs(temp_dir, exist_ok=True)
+        return temp_dir
+    
     def create_vhost(self, vhost: VirtualHost, document_root: str) -> Tuple[bool, str]:
         """
         Crea un nuevo host virtual con configuración Apache.
@@ -241,7 +250,7 @@ class VHostManager:
                 
                 import tempfile
                 # Escribir contenido a archivo temporal
-                with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.php') as tmp_index:
+                with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.php', dir=self._get_temp_dir()) as tmp_index:
                     tmp_index.write(index_content)
                     tmp_index_path = tmp_index.name
 
@@ -265,7 +274,7 @@ find "{vhost.document_root}" -type f -exec chmod 644 {{}} \;
 echo "Directorio y archivo index.php creados correctamente"
 """
                 
-                with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.sh') as script_file:
+                with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.sh', dir=self._get_temp_dir()) as script_file:
                     script_file.write(script_content)
                     script_path = script_file.name
                 
@@ -301,7 +310,7 @@ echo "Directorio y archivo index.php creados correctamente"
             
             # Crear archivo temporal con la configuración
             import tempfile
-            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.conf') as tmp:
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.conf', dir=self._get_temp_dir()) as tmp:
                 tmp.write(config_content)
                 tmp_config_path = tmp.name
             
@@ -348,7 +357,7 @@ fi
 echo "✓ Host virtual configurado correctamente"
 """
             
-            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.sh') as script_file:
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.sh', dir=self._get_temp_dir()) as script_file:
                 script_file.write(script_content)
                 script_path = script_file.name
             
@@ -512,7 +521,7 @@ echo "✓ Host virtual configurado correctamente"
             
             # Escribir con pkexec
             import tempfile
-            with tempfile.NamedTemporaryFile(mode='w', delete=False) as tmp:
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, dir=self._get_temp_dir()) as tmp:
                 tmp.write(new_content)
                 tmp_path = tmp.name
             
@@ -536,6 +545,77 @@ echo "✓ Host virtual configurado correctamente"
             logger.error(msg)
             return False, msg
     
+    def delete_vhosts(self, vhosts: List[Tuple[str, str]]) -> Tuple[bool, str]:
+        """
+        Elimina múltiples hosts virtuales.
+        
+        Args:
+            vhosts: Lista de tuplas (vhost_name, domain)
+            
+        Returns:
+            Tupla (éxito, mensaje)
+        """
+        try:
+            if not vhosts:
+                return True, "No hay hosts para eliminar"
+                
+            logger.info(f"Eliminando {len(vhosts)} hosts virtuales")
+            
+            domains = [v[1] for v in vhosts]
+            
+            # Preparar nuevo archivo hosts (sin los dominios)
+            tmp_hosts_path = self._prepare_hosts_file_for_multiple_removal(domains)
+            
+            # Construir script unificado
+            script_content = "#!/bin/bash\nset -e\n"
+            
+            for vhost_name, _ in vhosts:
+                # 1. Deshabilitar sitio
+                script_content += f"a2dissite {vhost_name}.conf || true\n"
+                
+                # 2. Eliminar configuración
+                config_path = os.path.join(self.VHOST_DIR, f"{vhost_name}.conf")
+                script_content += f"rm -f {config_path}\n"
+            
+            # 3. Actualizar hosts si se pudo preparar
+            if tmp_hosts_path:
+                script_content += f"cp {tmp_hosts_path} {self.HOSTS_FILE}\n"
+                script_content += f"chmod 644 {self.HOSTS_FILE}\n"
+            
+            # 4. Recargar Apache
+            script_content += "systemctl reload apache2 || true\n"
+            
+            # Crear archivo de script temporal
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.sh', dir=self._get_temp_dir()) as script_file:
+                script_file.write(script_content)
+                script_path = script_file.name
+            
+            os.chmod(script_path, 0o755)
+            
+            try:
+                # Ejecutar script con una sola llamada a pkexec
+                cmd = self._build_command(['pkexec', 'bash', script_path])
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                
+                if result.returncode != 0:
+                    return False, f"Error eliminando vhosts: {result.stderr}"
+                
+                logger.info(f"✓ {len(vhosts)} hosts virtuales eliminados")
+                return True, f"{len(vhosts)} hosts virtuales eliminados correctamente"
+                
+            finally:
+                # Limpiar archivos temporales
+                if os.path.exists(script_path):
+                    os.unlink(script_path)
+                if tmp_hosts_path and os.path.exists(tmp_hosts_path):
+                    os.unlink(tmp_hosts_path)
+            
+        except Exception as e:
+            msg = f"Error eliminando hosts virtuales: {str(e)}"
+            logger.error(msg)
+            return False, msg
+
     def delete_vhost(self, vhost_name: str, domain: str) -> Tuple[bool, str]:
         """
         Elimina un host virtual.
@@ -547,61 +627,17 @@ echo "✓ Host virtual configurado correctamente"
         Returns:
             Tupla (éxito, mensaje)
         """
-        try:
-            logger.info(f"Eliminando host virtual: {vhost_name}")
-            
-            # Deshabilitar sitio
-            disable_cmd = self._build_command([
-                'pkexec', 'a2dissite', f"{vhost_name}.conf"
-            ])
-            subprocess.run(disable_cmd, capture_output=True, timeout=30)
-            
-            # Eliminar configuración
-            config_path = os.path.join(self.VHOST_DIR, f"{vhost_name}.conf")
-            remove_cmd = self._build_command([
-                'pkexec', 'rm', '-f', config_path
-            ])
-            result = subprocess.run(remove_cmd, capture_output=True, text=True, timeout=30)
-            
-            if result.returncode != 0:
-                logger.warning(f"Error eliminando configuración: {result.stderr}")
-            
-            # Remover de /etc/hosts
-            self._remove_from_hosts(domain)
-            
-            # Verificar que Apache esté corriendo antes de recargar
-            check_cmd = self._build_command(['systemctl', 'is-active', 'apache2'])
-            try:
-                check_result = subprocess.run(check_cmd, capture_output=True, text=True, timeout=10)
-                apache_active = check_result.returncode == 0 and 'active' in check_result.stdout
-            except Exception as e:
-                logger.warning(f"No se pudo verificar estado de Apache: {e}")
-                apache_active = False
-            
-            if apache_active:
-                # Apache está activo, intentar recargar
-                reload_cmd = self._build_command([
-                    'pkexec', 'systemctl', 'reload', 'apache2'
-                ])
-                try:
-                    subprocess.run(reload_cmd, capture_output=True, text=True, timeout=30)
-                except Exception as e:
-                    logger.warning(f"Error recargando Apache: {e}")
-            
-            logger.info(f"✓ Host virtual '{vhost_name}' eliminado")
-            return True, f"Host virtual eliminado correctamente"
-            
-        except Exception as e:
-            msg = f"Error eliminando host virtual: {str(e)}"
-            logger.error(msg)
-            return False, msg
+        return self.delete_vhosts([(vhost_name, domain)])
     
-    def _remove_from_hosts(self, domain: str) -> None:
+    def _prepare_hosts_file_for_multiple_removal(self, domains: List[str]) -> Optional[str]:
         """
-        Elimina entrada del archivo /etc/hosts.
+        Prepara un archivo temporal con el contenido de /etc/hosts sin los dominios indicados.
         
         Args:
-            domain: Dominio a eliminar
+            domains: Lista de dominios a eliminar
+            
+        Returns:
+            Ruta al archivo temporal o None si falla
         """
         try:
             # Leer archivo hosts
@@ -610,39 +646,58 @@ echo "✓ Host virtual configurado correctamente"
             
             if result.returncode != 0:
                 logger.warning("No se pudo leer /etc/hosts")
-                return
+                return None
             
             lines = result.stdout.split('\n')
             new_lines = []
             skip_next = False
             
+            # Convertir a set para búsqueda rápida
+            domains_set = set(domains)
+            
             for line in lines:
-                # Saltar comentario XLAMP Manager y línea del dominio
-                if f"# XLAMP Manager - {domain}" in line:
+                # Verificar si es una línea de comentario de XLAMP para alguno de los dominios
+                is_xlamp_comment = False
+                for domain in domains_set:
+                    if f"# XLAMP Manager - {domain}" in line:
+                        is_xlamp_comment = True
+                        break
+                
+                if is_xlamp_comment:
                     skip_next = True
                     continue
-                if skip_next and domain in line:
+                
+                # Verificar si es la línea del dominio
+                is_domain_line = False
+                if skip_next:
+                    for domain in domains_set:
+                        if domain in line:
+                            is_domain_line = True
+                            break
+                
+                if is_domain_line:
                     skip_next = False
                     continue
+                    
                 new_lines.append(line)
             
             # Escribir nuevo contenido
             import tempfile
-            with tempfile.NamedTemporaryFile(mode='w', delete=False) as tmp:
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, dir=self._get_temp_dir()) as tmp:
                 tmp.write('\n'.join(new_lines))
-                tmp_path = tmp.name
-            
-            try:
-                copy_cmd = self._build_command([
-                    'pkexec', 'cp', tmp_path, self.HOSTS_FILE
-                ])
-                subprocess.run(copy_cmd, capture_output=True, timeout=30)
-                logger.info(f"✓ Dominio {domain} eliminado de /etc/hosts")
-            finally:
-                os.unlink(tmp_path)
+                return tmp.name
                 
         except Exception as e:
-            logger.error(f"Error eliminando de /etc/hosts: {e}")
+            logger.error(f"Error preparando hosts file: {e}")
+            return None
+
+    def _prepare_hosts_file_for_removal(self, domain: str) -> Optional[str]:
+        """
+        Prepara un archivo temporal con el contenido de /etc/hosts sin el dominio.
+        Deprecated: Use _prepare_hosts_file_for_multiple_removal instead.
+        """
+        return self._prepare_hosts_file_for_multiple_removal([domain])
+
     
     def list_vhosts(self) -> List[str]:
         """

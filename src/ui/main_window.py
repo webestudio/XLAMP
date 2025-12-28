@@ -409,6 +409,15 @@ class MainWindow(Gtk.Window):
         add_btn.connect("clicked", self._on_add_vhost_clicked)
         hbox.pack_end(add_btn, False, False, 0)
         
+        # Botón Eliminar Seleccionados
+        self.delete_selected_btn = Gtk.Button.new_from_icon_name("user-trash", Gtk.IconSize.BUTTON)
+        self.delete_selected_btn.set_label("Eliminar Seleccionados")
+        self.delete_selected_btn.set_always_show_image(True)
+        self.delete_selected_btn.get_style_context().add_class("destructive-action")
+        self.delete_selected_btn.set_sensitive(False)
+        self.delete_selected_btn.connect("clicked", self._on_delete_selected_vhosts_clicked)
+        hbox.pack_end(self.delete_selected_btn, False, False, 0)
+        
         # Botón para abrir raíz del servidor
         www_btn = Gtk.Button.new_from_icon_name("folder", Gtk.IconSize.BUTTON)
         www_btn.set_label("Abrir /var/www")
@@ -1807,12 +1816,19 @@ class MainWindow(Gtk.Window):
         """Crea una fila para un host virtual."""
         row = Gtk.ListBoxRow()
         row.set_can_focus(False)
+        row.vhost = vhost  # Guardar referencia al vhost
         
         hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         hbox.set_margin_start(10)
         hbox.set_margin_end(10)
         hbox.set_margin_top(6)
         hbox.set_margin_bottom(6)
+        
+        # Checkbox para selección múltiple
+        checkbox = Gtk.CheckButton()
+        checkbox.connect("toggled", self._on_vhost_selection_changed)
+        row.checkbox = checkbox
+        hbox.pack_start(checkbox, False, False, 0)
         
         # Icono
         icon = Gtk.Image.new_from_icon_name("network-server", Gtk.IconSize.DND)
@@ -1871,6 +1887,78 @@ class MainWindow(Gtk.Window):
         
         row.add(hbox)
         return row
+
+    def _on_vhost_selection_changed(self, widget):
+        """Actualiza el estado del botón de eliminar seleccionados."""
+        has_selection = False
+        for row in self.vhosts_listbox.get_children():
+            if hasattr(row, 'checkbox') and row.checkbox.get_active():
+                has_selection = True
+                break
+        self.delete_selected_btn.set_sensitive(has_selection)
+
+    def _on_delete_selected_vhosts_clicked(self, button):
+        """Elimina los hosts virtuales seleccionados."""
+        selected_vhosts = []
+        for row in self.vhosts_listbox.get_children():
+            if hasattr(row, 'checkbox') and row.checkbox.get_active():
+                selected_vhosts.append(row.vhost)
+        
+        if not selected_vhosts:
+            return
+
+        count = len(selected_vhosts)
+        dialog = Gtk.MessageDialog(
+            transient_for=self,
+            flags=0,
+            message_type=Gtk.MessageType.WARNING,
+            buttons=Gtk.ButtonsType.YES_NO,
+            text=f"Eliminar {count} hosts virtuales"
+        )
+        
+        vhost_names = "\n".join([f"• {v.server_name}" for v in selected_vhosts[:5]])
+        if count > 5:
+            vhost_names += f"\n... y {count - 5} más"
+            
+        dialog.format_secondary_text(
+            f"¿Está seguro que desea eliminar estos {count} hosts virtuales?\n\n"
+            f"{vhost_names}\n\n"
+            f"Esta acción es irreversible y eliminará las configuraciones de Apache."
+        )
+        
+        response = dialog.run()
+        dialog.destroy()
+        
+        if response == Gtk.ResponseType.YES:
+            self.is_busy = True
+            self.set_sensitive(False)
+            self._update_statusbar(f"Eliminando {count} hosts virtuales...")
+            
+            def delete_thread():
+                try:
+                    # Preparar lista de tuplas (name, domain)
+                    vhosts_to_delete = [(v.name, v.server_name) for v in selected_vhosts]
+                    success, message = self.vhost_manager.delete_vhosts(vhosts_to_delete)
+                    
+                    GLib.idle_add(self._on_vhosts_deleted_batch, success, message)
+                except Exception as e:
+                    logger.error(f"Error eliminando vhosts: {e}", exc_info=True)
+                    GLib.idle_add(self._on_vhosts_deleted_batch, False, str(e))
+            
+            threading.Thread(target=delete_thread, daemon=True).start()
+
+    def _on_vhosts_deleted_batch(self, success, message):
+        """Callback tras eliminación masiva."""
+        self.is_busy = False
+        self.set_sensitive(True)
+        
+        if success:
+            self._update_statusbar(message)
+            self._load_vhosts()
+            self.delete_selected_btn.set_sensitive(False)
+        else:
+            self._show_error("Error eliminando hosts", message)
+            self._update_statusbar("Error en la operación")
     
     def _on_open_vhost_browser(self, button, domain: str) -> None:
         """Abre el vhost en el navegador."""

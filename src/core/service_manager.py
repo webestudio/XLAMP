@@ -7,6 +7,7 @@ import subprocess
 import logging
 import psutil
 import shutil
+import os
 from typing import Optional, List
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -27,6 +28,13 @@ class ServiceManager:
     
     def __init__(self):
         """Inicializa el gestor de servicios."""
+        # Auto-detectar si estamos en Flatpak
+        if os.path.exists('/.flatpak-info'):
+            self.use_flatpak = True
+            logger.info("Detectado entorno Flatpak, usando flatpak-spawn")
+        else:
+            self.use_flatpak = False
+
         # Buscar systemctl en múltiples ubicaciones
         self.systemctl = self._find_systemctl()
         
@@ -47,9 +55,18 @@ class ServiceManager:
         else:
             self.method = None
             logger.warning("⚠️ No se encontró systemctl, service ni invoke-rc.d - gestión de servicios no disponible")
+
+    def _build_command(self, cmd: List[str]) -> List[str]:
+        """Construye comando con flatpak-spawn si es necesario."""
+        if self.use_flatpak:
+            return ['flatpak-spawn', '--host'] + cmd
+        return cmd
     
     def _find_systemctl(self) -> Optional[str]:
         """Busca el ejecutable systemctl en el sistema."""
+        if self.use_flatpak:
+            return 'systemctl'
+
         possible_paths = [
             '/usr/bin/systemctl',
             '/bin/systemctl',
@@ -108,8 +125,9 @@ class ServiceManager:
         
         try:
             # Verificar si está ejecutándose
+            cmd = self._build_command([self.systemctl, 'is-active', service_name])
             result = subprocess.run(
-                [self.systemctl, 'is-active', service_name],
+                cmd,
                 capture_output=True,
                 text=True,
                 timeout=5
@@ -117,8 +135,9 @@ class ServiceManager:
             status.running = (result.returncode == 0)
             
             # Verificar si está habilitado
+            cmd = self._build_command([self.systemctl, 'is-enabled', service_name])
             result = subprocess.run(
-                [self.systemctl, 'is-enabled', service_name],
+                cmd,
                 capture_output=True,
                 text=True,
                 timeout=5
@@ -127,8 +146,9 @@ class ServiceManager:
             
             # Si está ejecutándose, obtener información adicional
             if status.running:
+                cmd = self._build_command([self.systemctl, 'status', service_name])
                 status_result = subprocess.run(
-                    [self.systemctl, 'status', service_name],
+                    cmd,
                     capture_output=True,
                     text=True,
                     timeout=5
@@ -245,7 +265,7 @@ class ServiceManager:
         """
         try:
             if self.method == 'systemctl' and self.systemctl:
-                cmd = [self.systemctl, 'list-unit-files', f'{service_name}.service']
+                cmd = self._build_command([self.systemctl, 'list-unit-files', f'{service_name}.service'])
                 logger.debug(f"Verificando existencia de {service_name}: {' '.join(cmd)}")
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
                 exists = f'{service_name}.service' in result.stdout
@@ -288,16 +308,16 @@ class ServiceManager:
             
             if self.method == 'systemctl':
                 # systemctl permite múltiples servicios en un comando: systemctl start s1 s2 s3
-                cmd = ['pkexec', self.systemctl, action] + services
+                cmd = self._build_command(['pkexec', self.systemctl, action] + services)
                 
             elif self.method == 'service':
                 # service requiere un comando por servicio: service s1 start && service s2 start
                 shell_cmd = " && ".join([f"{self.service_cmd} {svc} {action}" for svc in services])
-                cmd = ['pkexec', 'sh', '-c', shell_cmd]
+                cmd = self._build_command(['pkexec', 'sh', '-c', shell_cmd])
                 
             elif self.method == 'invoke-rc.d':
                 shell_cmd = " && ".join([f"{self.invoke_rc} {svc} {action}" for svc in services])
-                cmd = ['pkexec', 'sh', '-c', shell_cmd]
+                cmd = self._build_command(['pkexec', 'sh', '-c', shell_cmd])
             
             logger.info(f"Ejecutando acción masiva '{action}': {' '.join(cmd)}")
             
@@ -336,11 +356,11 @@ class ServiceManager:
         
         try:
             if self.method == 'systemctl':
-                cmd = ['pkexec', self.systemctl, 'start', service_name]
+                cmd = self._build_command(['pkexec', self.systemctl, 'start', service_name])
             elif self.method == 'service':
-                cmd = ['pkexec', self.service_cmd, service_name, 'start']
+                cmd = self._build_command(['pkexec', self.service_cmd, service_name, 'start'])
             elif self.method == 'invoke-rc.d':
-                cmd = ['pkexec', self.invoke_rc, service_name, 'start']
+                cmd = self._build_command(['pkexec', self.invoke_rc, service_name, 'start'])
             
             logger.info(f"Ejecutando: {' '.join(cmd)}")
             result = subprocess.run(
@@ -382,11 +402,11 @@ class ServiceManager:
         
         try:
             if self.method == 'systemctl':
-                cmd = ['pkexec', self.systemctl, 'stop', service_name]
+                cmd = self._build_command(['pkexec', self.systemctl, 'stop', service_name])
             elif self.method == 'service':
-                cmd = ['pkexec', self.service_cmd, service_name, 'stop']
+                cmd = self._build_command(['pkexec', self.service_cmd, service_name, 'stop'])
             elif self.method == 'invoke-rc.d':
-                cmd = ['pkexec', self.invoke_rc, service_name, 'stop']
+                cmd = self._build_command(['pkexec', self.invoke_rc, service_name, 'stop'])
             
             logger.info(f"Ejecutando: {' '.join(cmd)}")
             result = subprocess.run(
@@ -428,11 +448,11 @@ class ServiceManager:
         
         try:
             if self.method == 'systemctl':
-                cmd = ['pkexec', self.systemctl, 'restart', service_name]
+                cmd = self._build_command(['pkexec', self.systemctl, 'restart', service_name])
             elif self.method == 'service':
-                cmd = ['pkexec', self.service_cmd, service_name, 'restart']
+                cmd = self._build_command(['pkexec', self.service_cmd, service_name, 'restart'])
             elif self.method == 'invoke-rc.d':
-                cmd = ['pkexec', self.invoke_rc, service_name, 'restart']
+                cmd = self._build_command(['pkexec', self.invoke_rc, service_name, 'restart'])
             else:
                 return False, f"Método desconocido: {self.method}"
             
@@ -480,7 +500,7 @@ class ServiceManager:
         
         try:
             result = subprocess.run(
-                ['pkexec', self.systemctl, 'enable', service_name],
+                self._build_command(['pkexec', self.systemctl, 'enable', service_name]),
                 capture_output=True,
                 text=True,
                 timeout=30
@@ -514,7 +534,7 @@ class ServiceManager:
         
         try:
             result = subprocess.run(
-                ['pkexec', self.systemctl, 'disable', service_name],
+                self._build_command(['pkexec', self.systemctl, 'disable', service_name]),
                 capture_output=True,
                 text=True,
                 timeout=30
