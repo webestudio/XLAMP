@@ -1,5 +1,5 @@
 """
-LAMP Manager - UI package
+XLAMP Manager - UI package
 """
 
 from .main_window import MainWindow

@@ -1,5 +1,5 @@
 """
-LAMP Manager - Utils package
+XLAMP Manager - Utils package
 """
 
 from .helpers import (

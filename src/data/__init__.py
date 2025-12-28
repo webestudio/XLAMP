@@ -1,9 +1,9 @@
 """
-LAMP Manager - Data package
+XLAMP Manager - Data package
 """
 
 from .database import Database
-from .models import VirtualHost, PHPVersion, StackComponent, ServiceStatus, OperationLog
+from .models import VirtualHost, PHPVersion, StackComponent, ServiceStatus, OperationLog, Config
 
 __all__ = [
     'Database',
@@ -12,4 +12,5 @@ __all__ = [
     'StackComponent',
     'ServiceStatus',
     'OperationLog',
+    'Config',
 ]

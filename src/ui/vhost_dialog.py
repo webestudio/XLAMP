@@ -1,5 +1,5 @@
 """
-LAMP Manager - VHost Dialog
+XLAMP Manager - VHost Dialog
 Diálogo para crear/editar hosts virtuales.
 """
 

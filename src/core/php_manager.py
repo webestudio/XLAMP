@@ -1,5 +1,5 @@
 """
-LAMP Manager - PHP Manager
+XLAMP Manager - PHP Manager
 Gestión específica de versiones PHP.
 """
 
@@ -223,7 +223,7 @@ class PHPManager:
                         "   sudo apt-get install -f\n"
                         "   sudo apt-get clean\n"
                         "   sudo apt-get update\n\n"
-                        "2. Luego vuelve a intentar desde LAMP Manager.\n\n"
+                        "2. Luego vuelve a intentar desde XLAMP Manager.\n\n"
                         "Detalles del error:\n"
                         f"{error_output[:300]}"
                     )
@@ -234,7 +234,7 @@ class PHPManager:
                         "  sudo add-apt-repository ppa:ondrej/php\n"
                         "  sudo apt update\n"
                         "  sudo apt install php{version}\n\n"
-                        "Luego reinicia LAMP Manager."
+                        "Luego reinicia XLAMP Manager."
                     )
                 
                 return False, f"Error instalando PHP {version}.\n\nDetalles:\n{error_output[:400]}"

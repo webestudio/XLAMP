@@ -1,4 +1,4 @@
-/* LAMP Manager - Flat Design (Tailwind-inspired) */
+/* XLAMP Manager - Flat Design (Tailwind-inspired) */
 
 /* Ventana principal */
 window {
@@ -7,15 +7,15 @@ window {
 
 /* Header */
 .header-title {
-    font-size: 24px;
+    font-size: 20px;
     font-weight: 700;
-    color: #0f172a;
+    color: #434B4D;
 }
 
 /* Cards y Frames */
 .card {
     background-color: #ffffff;
-    border-radius: 12px;
+    border-radius: 10px;
     border: 1px solid #e2e8f0;
     padding: 16px;
     margin: 6px 0;
@@ -32,15 +32,15 @@ window {
 .service-row {
     background-color: #ffffff;
     border-radius: 8px;
-    padding: 14px;
-    margin: 6px 0;
+    padding: 6px;
+    margin: 4px 0;
     border: 2px solid #e2e8f0;
     border-left-width: 4px;
     transition: all 0.15s ease;
 }
 
 .service-row.active {
-    border-left-color: #10b981;
+    border-left-color: #20B2AA;
     background-color: #f0fdf4;
 }
 
@@ -84,7 +84,7 @@ window {
 /* Botones - Flat Design */
 button {
     border-radius: 8px;
-    padding: 10px 18px;
+    padding: 6px 12px;
     font-weight: 600;
     border: 2px solid transparent;
     transition: all 0.15s ease;
@@ -95,17 +95,17 @@ button:hover {
 }
 
 .suggested-action {
-    background-color: #3b82f6;
+    background-color: #20B2AA;
     color: #ffffff;
     border: none;
 }
 
 .suggested-action:hover {
-    background-color: #2563eb;
+    background-color: #17807a;
 }
 
 .suggested-action:active {
-    background-color: #1d4ed8;
+    background-color: #136964;
 }
 
 .destructive-action {
@@ -151,8 +151,8 @@ notebook > header > tabs > tab:hover {
 }
 
 notebook > header > tabs > tab:checked {
-    color: #3b82f6;
-    border-bottom-color: #3b82f6;
+    color: #20B2AA;
+    border-bottom-color: #20B2AA;
     background-color: #eff6ff;
     font-weight: 600;
 }
@@ -192,22 +192,22 @@ progressbar > trough {
 }
 
 progressbar > trough > progress {
-    background-color: #3b82f6;
+    background-color: #20B2AA;
     border-radius: 9999px;
 }
 
 /* Entry fields - Flat Design */
 entry {
     border-radius: 8px;
-    padding: 10px 14px;
+    padding: 10px 10px;
     border: 2px solid #e5e7eb;
     background-color: #ffffff;
     transition: all 0.15s ease;
-    font-size: 14px;
+    font-size: 10px;
 }
 
 entry:focus {
-    border-color: #3b82f6;
+    border-color: #20B2AA;
     box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
     outline: none;
 }
@@ -223,8 +223,8 @@ switch {
 }
 
 switch:checked {
-    background-color: #3b82f6;
-    border-color: #3b82f6;
+    background-color: #20B2AA;
+    border-color: #20B2AA;
 }
 
 switch slider {
@@ -242,17 +242,17 @@ separator {
 /* Labels especiales */
 .dim-label {
     color: #64748b;
-    font-size: 13px;
+    font-size: 14px;
 }
 
 .title-label {
     font-size: 18px;
     font-weight: 700;
-    color: #0f172a;
+    color: #434B4D;
 }
 
 .subtitle-label {
-    font-size: 14px;
+    font-size: 10px;
     color: #64748b;
     font-weight: 500;
 }
@@ -260,36 +260,36 @@ separator {
 /* Info boxes - Flat Design */
 .info-box {
     background-color: #dbeafe;
-    border: 2px solid #3b82f6;
+    border: 2px solid #20B2AA;
     border-radius: 8px;
-    padding: 14px;
+    padding: 10px;
 }
 
 .warning-box {
     background-color: #fef3c7;
     border: 2px solid #f59e0b;
     border-radius: 8px;
-    padding: 14px;
+    padding: 10px;
 }
 
 .error-box {
     background-color: #fee2e2;
     border: 2px solid #ef4444;
     border-radius: 8px;
-    padding: 14px;
+    padding: 10px;
 }
 
 .success-box {
     background-color: #dcfce7;
-    border: 2px solid #10b981;
+    border: 2px solid #20B2AA;
     border-radius: 8px;
-    padding: 14px;
+    padding: 10px;
 }
 
 /* Stack components - Flat Design */
 .component-frame {
     background-color: #ffffff;
-    border-radius: 10px;
+    border-radius: 8px;
     border: 2px solid #e5e7eb;
     padding: 16px;
     margin: 8px 0;
@@ -302,19 +302,19 @@ separator {
 }
 
 .component-frame.installed {
-    border-color: #10b981;
+    border-color: #20B2AA;
     background-color: #f0fdf4;
 }
 
 .component-name {
     font-size: 16px;
     font-weight: 600;
-    color: #0f172a;
+    color: #434B4D;
 }
 
 .component-version {
     font-size: 12px;
-    color: #10b981;
+    color: #20B2AA;
     font-weight: 600;
 }
 
@@ -325,7 +325,7 @@ separator {
 
 /* Statusbar - Flat Design */
 statusbar {
-    background-color: #1e293b;
+    background-color: #434B4D;
     color: #f1f5f9;
     padding: 8px 14px;
     font-size: 13px;
@@ -351,7 +351,7 @@ scrollbar slider:hover {
 
 /* Tooltips - Flat Design */
 tooltip {
-    background-color: #1e293b;
+    background-color: #434B4D;
     color: #f1f5f9;
     border-radius: 6px;
     padding: 8px 14px;

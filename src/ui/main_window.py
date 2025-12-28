@@ -1,5 +1,5 @@
 """
-LAMP Manager - Main Window
+XLAMP Manager - Main Window
 Ventana principal de la aplicación con tabs.
 """
 
@@ -15,7 +15,7 @@ import threading
 from pathlib import Path
 
 from ..core import StackDetector, ServiceManager, VHostManager, BackupManager, PHPManager
-from ..data import Database, VirtualHost
+from ..data import Database, VirtualHost, Config
 from .install_dialog import InstallDialog
 from .vhost_dialog import VHostDialog
 
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 class MainWindow(Gtk.Window):
-    """Ventana principal de LAMP Manager."""
+    """Ventana principal de XLAMP Manager."""
     
     def __init__(self, db: Database):
         """
@@ -32,7 +32,7 @@ class MainWindow(Gtk.Window):
         Args:
             db: Instancia de la base de datos
         """
-        super().__init__(title="LAMP Manager")
+        super().__init__(title="XLAMP Manager")
         
         self.db = db
         self.stack_detector = StackDetector()
@@ -41,7 +41,7 @@ class MainWindow(Gtk.Window):
         self.php_manager = PHPManager(use_flatpak=os.path.exists('/.flatpak-info'))
         
         # Inicializar BackupManager
-        backup_path = self.db.get_config('backup_path') or 'backups/'
+        backup_path = Config.get_value('backup_path') or 'backups/'
         self.backup_manager = BackupManager(
             backup_dir=backup_path,
             use_flatpak=os.path.exists('/.flatpak-info')
@@ -50,6 +50,11 @@ class MainWindow(Gtk.Window):
         self.installed_components = {}  # Componentes instalados
         self.systemctl_available = self.service_manager.systemctl is not None
         self.is_busy = False  # Flag para bloquear acciones durante operaciones
+        
+        # Estado de paginación de VHosts
+        self.vhost_current_page = 1
+        self.vhost_items_per_page = 10
+        self.vhost_search_text = ""
         
         # Cargar estilos CSS
         self._load_styles()
@@ -175,7 +180,7 @@ class MainWindow(Gtk.Window):
         vbox_title = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         
         title_label = Gtk.Label()
-        title_label.set_markup("<span size='x-large' weight='bold'>LAMP Manager</span>")
+        title_label.set_markup("<span size='x-large' weight='bold'>XLAMP Manager</span>")
         title_label.set_halign(Gtk.Align.START)
         title_label.get_style_context().add_class("header-title")
         vbox_title.pack_start(title_label, False, False, 0)
@@ -260,11 +265,40 @@ class MainWindow(Gtk.Window):
         vbox.set_margin_end(10)
         vbox.set_margin_top(10)
         
+        # Header con Título y Botones Globales
+        hbox_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        
         # Título
         title = Gtk.Label()
         title.set_markup("<span size='large' weight='bold'>Estado de Servicios</span>")
         title.set_halign(Gtk.Align.START)
-        vbox.pack_start(title, False, False, 0)
+        hbox_header.pack_start(title, True, True, 0)
+        
+        # Botones Globales
+        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        
+        self.btn_start_all = Gtk.Button()
+        hbox_start = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        icon_start = Gtk.Image.new_from_icon_name("media-playback-start", Gtk.IconSize.BUTTON)
+        hbox_start.pack_start(icon_start, False, False, 0)
+        hbox_start.pack_start(Gtk.Label(label="Iniciar Todos"), False, False, 0)
+        self.btn_start_all.add(hbox_start)
+        self.btn_start_all.get_style_context().add_class("suggested-action")
+        self.btn_start_all.connect("clicked", self._on_start_all_clicked)
+        btn_box.pack_start(self.btn_start_all, False, False, 0)
+        
+        self.btn_stop_all = Gtk.Button()
+        hbox_stop = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        icon_stop = Gtk.Image.new_from_icon_name("media-playback-stop", Gtk.IconSize.BUTTON)
+        hbox_stop.pack_start(icon_stop, False, False, 0)
+        hbox_stop.pack_start(Gtk.Label(label="Detener Todos"), False, False, 0)
+        self.btn_stop_all.add(hbox_stop)
+        self.btn_stop_all.get_style_context().add_class("destructive-action")
+        self.btn_stop_all.connect("clicked", self._on_stop_all_clicked)
+        btn_box.pack_start(self.btn_stop_all, False, False, 0)
+        
+        hbox_header.pack_start(btn_box, False, False, 0)
+        vbox.pack_start(hbox_header, False, False, 0)
         
         # Lista de servicios
         self.services_listbox = Gtk.ListBox()
@@ -281,6 +315,71 @@ class MainWindow(Gtk.Window):
         # Agregar tab
         label = Gtk.Label(label="Servicios")
         self.notebook.append_page(vbox, label)
+
+    def _get_all_service_names(self) -> list:
+        """Obtiene la lista de nombres de servicios actuales."""
+        services = []
+        # Recorrer los hijos del listbox para obtener los nombres
+        for row in self.services_listbox.get_children():
+            # Asumimos que guardamos el nombre del servicio en el widget row o lo podemos deducir
+            # Pero mejor usamos la lista que ya tenemos en memoria si es posible
+            # O iteramos sobre los widgets ServiceRow si tienen un método get_service_name
+            if hasattr(row, 'service_name'):
+                services.append(row.service_name)
+        
+        # Si la lista está vacía (aún no se cargó), usamos los defaults
+        if not services:
+            services = ['apache2', 'mysql']
+            # Intentar adivinar PHP
+            import glob
+            for php_bin in glob.glob('/usr/bin/php[0-9]*'):
+                 version = php_bin.replace('/usr/bin/php', '')
+                 if '.' in version:
+                     services.append(f'php{version}-fpm')
+        
+        return services
+
+    def _on_start_all_clicked(self, widget):
+        """Manejador para iniciar todos los servicios."""
+        services = self._get_all_service_names()
+        if not services:
+            return
+
+        self._update_statusbar("Iniciando todos los servicios...")
+        self.btn_start_all.set_sensitive(False)
+        self.btn_stop_all.set_sensitive(False)
+        
+        def run_start_all():
+            success, msg = self.service_manager.manage_all_services('start', services)
+            GLib.idle_add(self._on_all_services_action_finished, success, msg)
+            
+        threading.Thread(target=run_start_all, daemon=True).start()
+
+    def _on_stop_all_clicked(self, widget):
+        """Manejador para detener todos los servicios."""
+        services = self._get_all_service_names()
+        if not services:
+            return
+
+        self._update_statusbar("Deteniendo todos los servicios...")
+        self.btn_start_all.set_sensitive(False)
+        self.btn_stop_all.set_sensitive(False)
+        
+        def run_stop_all():
+            success, msg = self.service_manager.manage_all_services('stop', services)
+            GLib.idle_add(self._on_all_services_action_finished, success, msg)
+            
+        threading.Thread(target=run_stop_all, daemon=True).start()
+
+    def _on_all_services_action_finished(self, success, msg):
+        """Callback al finalizar acción masiva."""
+        self.btn_start_all.set_sensitive(True)
+        self.btn_stop_all.set_sensitive(True)
+        self._update_statusbar(msg)
+        if success:
+            self._update_services_status()
+        else:
+            self._show_error(msg)
     
     def _create_vhosts_tab(self) -> None:
         """Crea el tab de hosts virtuales."""
@@ -289,19 +388,26 @@ class MainWindow(Gtk.Window):
         vbox.set_margin_end(10)
         vbox.set_margin_top(10)
         
-        # Header con botón de agregar
+        # Header con botón de agregar y búsqueda
         hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         
         title = Gtk.Label()
         title.set_markup("<span size='large' weight='bold'>Hosts Virtuales</span>")
         title.set_halign(Gtk.Align.START)
-        hbox.pack_start(title, True, True, 0)
+        hbox.pack_start(title, False, False, 0)
+        
+        # Buscador
+        self.vhost_search_entry = Gtk.SearchEntry()
+        self.vhost_search_entry.set_placeholder_text("Buscar host...")
+        self.vhost_search_entry.set_width_chars(20)
+        self.vhost_search_entry.connect("search-changed", self._on_vhost_search_changed)
+        hbox.pack_end(self.vhost_search_entry, False, False, 0)
         
         add_btn = Gtk.Button.new_from_icon_name("list-add", Gtk.IconSize.BUTTON)
-        add_btn.set_label("Nuevo VHost")
+        add_btn.set_label("Nuevo")
         add_btn.set_always_show_image(True)
         add_btn.connect("clicked", self._on_add_vhost_clicked)
-        hbox.pack_start(add_btn, False, False, 0)
+        hbox.pack_end(add_btn, False, False, 0)
         
         # Botón para abrir raíz del servidor
         www_btn = Gtk.Button.new_from_icon_name("folder", Gtk.IconSize.BUTTON)
@@ -309,7 +415,7 @@ class MainWindow(Gtk.Window):
         www_btn.set_always_show_image(True)
         www_btn.set_tooltip_text("Abrir directorio raíz del servidor Apache")
         www_btn.connect("clicked", self._on_open_www_clicked)
-        hbox.pack_start(www_btn, False, False, 0)
+        hbox.pack_end(www_btn, False, False, 0)
         
         vbox.pack_start(hbox, False, False, 0)
         
@@ -320,6 +426,27 @@ class MainWindow(Gtk.Window):
         scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         scrolled.add(self.vhosts_listbox)
         vbox.pack_start(scrolled, True, True, 0)
+        
+        # Paginación
+        pagination_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        pagination_box.set_halign(Gtk.Align.CENTER)
+        pagination_box.set_margin_top(5)
+        pagination_box.set_margin_bottom(5)
+        
+        self.vhost_prev_btn = Gtk.Button.new_from_icon_name("go-previous", Gtk.IconSize.BUTTON)
+        self.vhost_prev_btn.connect("clicked", self._on_vhost_prev_page)
+        self.vhost_prev_btn.set_sensitive(False)
+        pagination_box.pack_start(self.vhost_prev_btn, False, False, 0)
+        
+        self.vhost_page_label = Gtk.Label(label="Página 1")
+        pagination_box.pack_start(self.vhost_page_label, False, False, 10)
+        
+        self.vhost_next_btn = Gtk.Button.new_from_icon_name("go-next", Gtk.IconSize.BUTTON)
+        self.vhost_next_btn.connect("clicked", self._on_vhost_next_page)
+        self.vhost_next_btn.set_sensitive(False)
+        pagination_box.pack_start(self.vhost_next_btn, False, False, 0)
+        
+        vbox.pack_start(pagination_box, False, False, 0)
         
         label = Gtk.Label(label="Hosts Virtuales")
         self.notebook.append_page(vbox, label)
@@ -584,7 +711,7 @@ class MainWindow(Gtk.Window):
         backup_label.set_hexpand(False)
         self.backup_switch = Gtk.Switch()
         self.backup_switch.set_halign(Gtk.Align.START)
-        backup_enabled = self.db.get_config('backup_enabled') == '1'
+        backup_enabled = Config.get_value('backup_enabled') == '1'
         self.backup_switch.set_active(backup_enabled)
         self.backup_switch.connect("notify::active", self._on_backup_toggled)
         grid.attach(backup_label, 0, 0, 1, 1)
@@ -596,7 +723,7 @@ class MainWindow(Gtk.Window):
         self.backup_path_entry = Gtk.Entry()
         self.backup_path_entry.set_hexpand(True)
         self.backup_path_entry.set_width_chars(30)
-        backup_path = self.db.get_config('backup_path') or 'backups/'
+        backup_path = Config.get_value('backup_path') or 'backups/'
         self.backup_path_entry.set_text(backup_path)
         grid.attach(backup_path_label, 0, 1, 1, 1)
         grid.attach(self.backup_path_entry, 1, 1, 1, 1)
@@ -721,10 +848,13 @@ class MainWindow(Gtk.Window):
                 return True
             
             # Obtener solo servicios de componentes instalados
+            logger.info("Obteniendo estado de servicios...")
             statuses = self.service_manager.get_all_status(self.installed_components)
+            logger.info(f"Servicios detectados: {len(statuses)}")
             
             if not statuses:
                 # No hay servicios disponibles (sin systemctl)
+                logger.warning("No se detectaron servicios")
                 row = Gtk.ListBoxRow()
                 label = Gtk.Label(label="Gestión de servicios no disponible (systemctl no encontrado)")
                 label.set_margin_top(20)
@@ -733,6 +863,7 @@ class MainWindow(Gtk.Window):
                 self.services_listbox.add(row)
             else:
                 for status in statuses:
+                    logger.info(f"Agregando servicio: {status.name}")
                     row = self._create_service_row(status)
                     self.services_listbox.add(row)
             
@@ -746,6 +877,7 @@ class MainWindow(Gtk.Window):
     def _create_service_row(self, status) -> Gtk.ListBoxRow:
         """Crea una fila de servicio."""
         row = Gtk.ListBoxRow()
+        row.service_name = status.name  # Guardar nombre para acciones masivas
         row.get_style_context().add_class("service-row")
         
         # Añadir clase según estado
@@ -1292,8 +1424,8 @@ class MainWindow(Gtk.Window):
         
         if success:
             # Guardar en base de datos
-            vhost_id = self.db.add_vhost(vhost)
-            logger.info(f"Host virtual guardado en BD con ID: {vhost_id}")
+            vhost.save()
+            logger.info(f"Host virtual guardado en BD con ID: {vhost.id}")
             
             self._update_statusbar(f"✓ {message}")
             self._show_info("Éxito", f"{message}\n\nAccede en: http://{vhost.server_name}")
@@ -1584,9 +1716,19 @@ class MainWindow(Gtk.Window):
                 self.vhosts_listbox.remove(child)
             
             # Obtener vhosts de la BD
-            vhosts = self.db.get_all_vhosts()
+            all_vhosts = VirtualHost.all()
             
-            logger.info(f"Se encontraron {len(vhosts)} hosts virtuales")
+            # Ordenar descendente por ID (los más nuevos primero)
+            all_vhosts.sort(key=lambda x: x.id if x.id else 0, reverse=True)
+            
+            # Filtrar si hay búsqueda
+            if self.vhost_search_text:
+                search = self.vhost_search_text.lower()
+                vhosts = [v for v in all_vhosts if search in v.server_name.lower() or search in v.name.lower()]
+            else:
+                vhosts = all_vhosts
+            
+            logger.info(f"Se encontraron {len(vhosts)} hosts virtuales (Total: {len(all_vhosts)})")
             
             if not vhosts:
                 # Mostrar mensaje cuando no hay vhosts
@@ -1598,43 +1740,86 @@ class MainWindow(Gtk.Window):
                 icon = Gtk.Image.new_from_icon_name("network-server-symbolic", Gtk.IconSize.DIALOG)
                 vbox.pack_start(icon, False, False, 0)
                 
-                label = Gtk.Label(label="No hay hosts virtuales configurados")
+                msg = "No se encontraron hosts virtuales" if self.vhost_search_text else "No hay hosts virtuales configurados"
+                label = Gtk.Label(label=msg)
                 label.set_margin_top(10)
                 vbox.pack_start(label, False, False, 0)
                 
-                hint = Gtk.Label()
-                hint.set_markup("<small>Haz clic en <b>Nuevo VHost</b> para crear uno</small>")
-                vbox.pack_start(hint, False, False, 0)
+                if not self.vhost_search_text:
+                    hint = Gtk.Label()
+                    hint.set_markup("<small>Haz clic en <b>Nuevo</b> para crear uno</small>")
+                    vbox.pack_start(hint, False, False, 0)
                 
                 row.add(vbox)
                 self.vhosts_listbox.add(row)
+                
+                # Resetear paginación UI
+                self.vhost_page_label.set_text("Página 0 de 0")
+                self.vhost_prev_btn.set_sensitive(False)
+                self.vhost_next_btn.set_sensitive(False)
             else:
-                for vhost in vhosts:
+                # Paginación
+                total_items = len(vhosts)
+                total_pages = (total_items + self.vhost_items_per_page - 1) // self.vhost_items_per_page
+                
+                # Asegurar página válida
+                if self.vhost_current_page > total_pages:
+                    self.vhost_current_page = total_pages
+                if self.vhost_current_page < 1:
+                    self.vhost_current_page = 1
+                
+                start_idx = (self.vhost_current_page - 1) * self.vhost_items_per_page
+                end_idx = start_idx + self.vhost_items_per_page
+                page_vhosts = vhosts[start_idx:end_idx]
+                
+                for vhost in page_vhosts:
                     row = self._create_vhost_row(vhost)
                     self.vhosts_listbox.add(row)
+                
+                # Actualizar controles de paginación
+                self.vhost_page_label.set_text(f"Página {self.vhost_current_page} de {total_pages}")
+                self.vhost_prev_btn.set_sensitive(self.vhost_current_page > 1)
+                self.vhost_next_btn.set_sensitive(self.vhost_current_page < total_pages)
             
             self.vhosts_listbox.show_all()
             
         except Exception as e:
             logger.error(f"Error cargando vhosts: {e}", exc_info=True)
     
+    def _on_vhost_search_changed(self, entry):
+        """Handler para búsqueda de vhosts."""
+        self.vhost_search_text = entry.get_text()
+        self.vhost_current_page = 1  # Resetear a primera página
+        self._load_vhosts()
+        
+    def _on_vhost_prev_page(self, button):
+        """Handler para página anterior."""
+        if self.vhost_current_page > 1:
+            self.vhost_current_page -= 1
+            self._load_vhosts()
+            
+    def _on_vhost_next_page(self, button):
+        """Handler para página siguiente."""
+        self.vhost_current_page += 1
+        self._load_vhosts()
+
     def _create_vhost_row(self, vhost: VirtualHost) -> Gtk.ListBoxRow:
         """Crea una fila para un host virtual."""
         row = Gtk.ListBoxRow()
         row.set_can_focus(False)
         
-        hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        hbox.set_margin_start(15)
-        hbox.set_margin_end(15)
-        hbox.set_margin_top(12)
-        hbox.set_margin_bottom(12)
+        hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        hbox.set_margin_start(10)
+        hbox.set_margin_end(10)
+        hbox.set_margin_top(6)
+        hbox.set_margin_bottom(6)
         
         # Icono
         icon = Gtk.Image.new_from_icon_name("network-server", Gtk.IconSize.DND)
         hbox.pack_start(icon, False, False, 0)
         
         # Información del vhost
-        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         
         # Nombre y dominio
         name_label = Gtk.Label()
@@ -1754,7 +1939,7 @@ class MainWindow(Gtk.Window):
         
         if success:
             # Eliminar de base de datos
-            self.db.delete_vhost(vhost.id)
+            vhost.delete()
             self._update_statusbar(f"✓ {message}")
             self._show_info("Éxito", message)
             self._load_vhosts()
@@ -1964,7 +2149,7 @@ class MainWindow(Gtk.Window):
         """Limpieza automática de backups (ejecutada por timer)."""
         try:
             # Solo si está habilitado
-            if self.db.get_config('backup_enabled') != '1':
+            if Config.get_value('backup_enabled') != '1':
                 return True  # Continuar timer
             
             logger.info("Ejecutando limpieza automática de backups")

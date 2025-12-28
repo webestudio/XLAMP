@@ -1,5 +1,5 @@
 """
-LAMP Manager - Stack Installer
+XLAMP Manager - Stack Installer
 Sistema de instalación de componentes del stack LAMP.
 """
 
@@ -21,7 +21,7 @@ class StackInstaller:
         'apache2': {
             'name': 'Apache',
             'packages': ['apache2'],
-            'description': 'Servidor web Apache HTTP Server',
+            'description': 'Servidor web HTTP. Se ejecuta en el puerto 80 por defecto.',
             'service': 'apache2',
             'post_install': None,
             'category': 'servidores'
@@ -29,7 +29,7 @@ class StackInstaller:
         'mysql': {
             'name': 'MySQL',
             'packages': ['mysql-server'],
-            'description': 'Sistema de gestión de bases de datos MySQL',
+            'description': 'Base de datos relacional. Usuario: root, Clave: root',
             'service': 'mysql',
             'post_install': None,
             'category': 'servidores'
@@ -37,7 +37,7 @@ class StackInstaller:
         'mariadb': {
             'name': 'MariaDB',
             'packages': ['mariadb-server', 'mariadb-client'],
-            'description': 'Sistema de BD alternativo a MySQL, más moderno',
+            'description': 'Fork compatible de MySQL. Usuario: root, Clave: root',
             'service': 'mariadb',
             'post_install': None,
             'category': 'servidores'
@@ -57,7 +57,7 @@ class StackInstaller:
                 'php-xml',
                 'php-zip'
             ],
-            'description': 'Lenguaje de programación PHP con módulos comunes',
+            'description': 'Lenguaje PHP con extensiones comunes (curl, gd, mysql, xml, zip).',
             'service': 'apache2',
             'post_install': 'apache2',
             'category': 'lenguajes'
@@ -65,7 +65,7 @@ class StackInstaller:
         'nodejs': {
             'name': 'Node.js',
             'packages': ['nodejs', 'npm'],
-            'description': 'JavaScript runtime y gestor de paquetes NPM',
+            'description': 'Entorno JavaScript server-side. Incluye gestor de paquetes npm.',
             'service': None,
             'post_install': None,
             'add_to_path': True,
@@ -76,7 +76,7 @@ class StackInstaller:
         'composer': {
             'name': 'Composer',
             'packages': ['composer'],
-            'description': 'Gestor de dependencias para PHP',
+            'description': 'Estándar para gestión de dependencias en proyectos PHP.',
             'service': None,
             'post_install': None,
             'category': 'dependencias'
@@ -106,7 +106,7 @@ class StackInstaller:
         'redis': {
             'name': 'Redis',
             'packages': ['redis-server', 'php-redis'],
-            'description': 'Base de datos en memoria para caché de alto rendimiento',
+            'description': 'Store de estructura de datos en memoria. Puerto por defecto: 6379.',
             'service': 'redis-server',
             'post_install': 'apache2',
             'category': 'cache'
@@ -114,7 +114,7 @@ class StackInstaller:
         'memcached': {
             'name': 'Memcached',
             'packages': ['memcached', 'php-memcached'],
-            'description': 'Sistema de caché distribuida en memoria',
+            'description': 'Sistema de caché de objetos en memoria. Puerto por defecto: 11211.',
             'service': 'memcached',
             'post_install': 'apache2',
             'category': 'cache'
@@ -132,7 +132,7 @@ class StackInstaller:
         'xdebug': {
             'name': 'Xdebug',
             'packages': ['php-xdebug'],
-            'description': 'Debugger y profiler para PHP',
+            'description': 'Herramienta de depuración. Requiere configurar IDE (puerto 9003).',
             'service': None,
             'post_install': 'apache2',
             'category': 'desarrollo'
@@ -140,7 +140,7 @@ class StackInstaller:
         'phpmyadmin': {
             'name': 'phpMyAdmin',
             'packages': ['phpmyadmin'],
-            'description': 'Interfaz web para administración de MySQL/MariaDB',
+            'description': 'Gestión web de BD. Acceso: http://localhost/phpmyadmin (User: root, Pass: root)',
             'service': None,
             'post_install': 'apache2',
             'category': 'desarrollo'
@@ -148,7 +148,7 @@ class StackInstaller:
         'adminer': {
             'name': 'Adminer',
             'packages': ['adminer'],
-            'description': 'Gestor de BD ligero, alternativa a phpMyAdmin',
+            'description': 'Alternativa ligera a phpMyAdmin en un solo archivo PHP.',
             'service': None,
             'post_install': 'apache2',
             'category': 'desarrollo'
@@ -368,6 +368,67 @@ class StackInstaller:
             logger.info(f"✓ {component['name']} instalado correctamente")
             logger.debug(f"Salida: {result.stdout}")
             
+            # Configuración específica para MySQL/MariaDB
+            if component_id in ['mysql', 'mariadb']:
+                logger.info(f"Configurando seguridad básica para {component['name']}...")
+                try:
+                    # Script para configurar contraseña root y autenticación nativa
+                    # Se intenta ambas sintaxis (MySQL 8 vs MariaDB/MySQL 5.7)
+                    security_script = """
+                    if command -v mysql >/dev/null 2>&1; then
+                        mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY 'root';" 2>/dev/null || \
+                        mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED BY 'root';" 2>/dev/null
+                        mysql -e "FLUSH PRIVILEGES;"
+                    fi
+                    """
+                    
+                    config_cmd = self._build_command([
+                        'pkexec', 'sh', '-c', security_script
+                    ])
+                    
+                    subprocess.run(config_cmd, capture_output=True, timeout=60)
+                    logger.info(f"✓ Seguridad configurada para {component['name']}")
+                except Exception as e:
+                    logger.warning(f"Error configurando seguridad de BD: {e}")
+
+            # Configuración específica para phpMyAdmin
+            if component_id == 'phpmyadmin':
+                logger.info("Configurando phpMyAdmin para Apache...")
+                try:
+                    # Script robusto de configuración
+                    config_script = """
+                    # 1. Verificar si existe la configuración por defecto del paquete
+                    if [ -f /etc/phpmyadmin/apache.conf ]; then
+                        if [ ! -f /etc/apache2/conf-available/phpmyadmin.conf ]; then
+                            ln -s /etc/phpmyadmin/apache.conf /etc/apache2/conf-available/phpmyadmin.conf
+                        fi
+                    else
+                        # 2. Si no existe, crear una configuración básica
+                        if [ ! -f /etc/apache2/conf-available/phpmyadmin.conf ]; then
+                            echo "Alias /phpmyadmin /usr/share/phpmyadmin" > /etc/apache2/conf-available/phpmyadmin.conf
+                            echo "<Directory /usr/share/phpmyadmin>" >> /etc/apache2/conf-available/phpmyadmin.conf
+                            echo "    Options SymLinksIfOwnerMatch" >> /etc/apache2/conf-available/phpmyadmin.conf
+                            echo "    DirectoryIndex index.php" >> /etc/apache2/conf-available/phpmyadmin.conf
+                            echo "    AllowOverride All" >> /etc/apache2/conf-available/phpmyadmin.conf
+                            echo "    Require all granted" >> /etc/apache2/conf-available/phpmyadmin.conf
+                            echo "</Directory>" >> /etc/apache2/conf-available/phpmyadmin.conf
+                        fi
+                    fi
+                    
+                    # 3. Habilitar configuración y recargar Apache
+                    a2enconf phpmyadmin
+                    systemctl reload apache2
+                    """
+                    
+                    config_cmd = self._build_command([
+                        'pkexec', 'sh', '-c', config_script
+                    ])
+                    
+                    subprocess.run(config_cmd, capture_output=True, timeout=60)
+                    logger.info("✓ phpMyAdmin configurado en Apache")
+                except Exception as e:
+                    logger.warning(f"Error configurando phpMyAdmin: {e}")
+
             if progress_callback:
                 progress_callback(80, f"Configurando {component['name']}...")
             

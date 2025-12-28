@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-LAMP Manager - Main Entry Point
-Aplicación GUI para gestión del stack LAMP en Linux.
+XLAMP Manager - Main Entry Point
+Aplicación GUI para gestión del stack XLAMP en Linux.
 """
 
 import sys
@@ -60,14 +60,14 @@ def global_exception_handler(exc_type, exc_value, exc_traceback):
 sys.excepthook = global_exception_handler
 
 
-class LAMPManagerApp:
-    """Aplicación principal de LAMP Manager."""
+class XLAMPManagerApp:
+    """Aplicación principal de XLAMP Manager."""
     
     def __init__(self):
         """Inicializa la aplicación."""
         # Configurar logging
         setup_logging()
-        logger.info("Iniciando LAMP Manager...")
+        logger.info("Iniciando XLAMP Manager...")
         
         # Verificar que no se ejecute como root
         from utils import is_root
@@ -77,6 +77,9 @@ class LAMPManagerApp:
         # Inicializar base de datos
         try:
             self.db = Database()
+            # Configurar modelo base con la instancia de base de datos
+            from .data.base_model import Model
+            Model.set_db(self.db)
             logger.info("Base de datos inicializada correctamente")
         except Exception as e:
             logger.error(f"Error inicializando base de datos: {e}")
@@ -99,7 +102,7 @@ class LAMPManagerApp:
         """Ejecuta la aplicación."""
         try:
             self.window.show_all()
-            logger.info("LAMP Manager iniciado correctamente")
+            logger.info("XLAMP Manager iniciado correctamente")
             Gtk.main()
         except KeyboardInterrupt:
             logger.info("Interrupción por teclado")
@@ -117,7 +120,7 @@ class LAMPManagerApp:
                 flags=0,
                 message_type=Gtk.MessageType.ERROR,
                 buttons=Gtk.ButtonsType.OK,
-                text="Error en LAMP Manager"
+                text="Error en XLAMP Manager"
             )
             dialog.format_secondary_text(message)
             dialog.run()
@@ -127,7 +130,7 @@ class LAMPManagerApp:
     
     def on_quit(self, *args) -> None:
         """Cierra la aplicación limpiamente."""
-        logger.info("Cerrando LAMP Manager...")
+        logger.info("Cerrando XLAMP Manager...")
         
         # Cerrar base de datos
         if hasattr(self, 'db'):
@@ -149,7 +152,7 @@ def main() -> int:
         Código de salida
     """
     try:
-        app = LAMPManagerApp()
+        app = XLAMPManagerApp()
         app.run()
         return 0
     except Exception as e:

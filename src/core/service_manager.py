@@ -1,5 +1,5 @@
 """
-LAMP Manager - Service Manager
+XLAMP Manager - Service Manager
 Gestión de servicios del sistema con pkexec.
 """
 
@@ -177,47 +177,150 @@ class ServiceManager:
         Returns:
             Lista de estados de servicios
         """
-        if not self.systemctl:
+        if not self.method:
+            logger.warning("No hay método disponible para obtener estado de servicios")
             return []
         
         statuses = []
+        services_added = set()
         
-        # Mapeo de componentes a servicios
-        component_service_map = {
-            'apache2': ['apache2'],
-            'mysql': ['mysql'],
-            'php': ['php-fpm', 'php7.4-fpm', 'php8.0-fpm', 'php8.1-fpm', 'php8.2-fpm', 'php8.3-fpm'],
-        }
+        # Servicios principales siempre verificados
+        core_services = ['apache2', 'mysql', 'mariadb']
         
-        # Si se proporcionan componentes instalados, filtrar
-        if installed_components:
-            for component_name, component in installed_components.items():
-                if component.installed and component_name in component_service_map:
-                    for service_name in component_service_map[component_name]:
-                        # Para PHP, verificar qué servicio existe realmente
-                        if 'php' in service_name:
-                            # Verificar si el servicio existe
-                            result = subprocess.run(
-                                [self.systemctl, 'list-unit-files', service_name + '.service'],
-                                capture_output=True,
-                                text=True,
-                                timeout=5
-                            )
-                            if service_name + '.service' in result.stdout:
-                                status = self.get_status(service_name)
-                                statuses.append(status)
-                                break  # Solo agregar el primer servicio PHP encontrado
-                        else:
-                            status = self.get_status(service_name)
-                            statuses.append(status)
-        else:
-            # Sin filtro, obtener todos
-            for service_name in self.SERVICES.keys():
+        for service_name in core_services:
+            if service_name not in services_added:
+                status = self.get_status(service_name)
+                # Solo agregar si el servicio existe (tiene información válida)
+                if status.running or self._service_exists(service_name):
+                    statuses.append(status)
+                    services_added.add(service_name)
+        
+        # Detectar todas las versiones de PHP-FPM realmente instaladas
+        php_versions_detected = []
+        
+        # Buscar versiones de PHP instaladas en el sistema
+        import glob
+        import os
+        for php_bin in glob.glob('/usr/bin/php[0-9]*'):
+            if php_bin == '/usr/bin/php':
+                continue
+            # Extraer versión (ej: /usr/bin/php8.3 -> 8.3)
+            version = php_bin.replace('/usr/bin/php', '')
+            if '.' in version:
+                # Verificar que el socket de FPM exista o el binario de FPM
+                fpm_socket = f'/run/php/php{version}-fpm.sock'
+                fpm_bin = f'/usr/sbin/php-fpm{version}'
+                fpm_bin_alt = f'/usr/sbin/php{version}-fpm'
+                
+                # Solo agregar si tiene FPM instalado
+                if os.path.exists(fpm_socket) or os.path.exists(fpm_bin) or os.path.exists(fpm_bin_alt):
+                    php_versions_detected.append(version)
+                    logger.info(f"PHP {version} con FPM detectado")
+                else:
+                    logger.debug(f"PHP {version} encontrado pero sin FPM instalado")
+        
+        logger.info(f"Versiones de PHP con FPM instaladas: {php_versions_detected}")
+        
+        # Solo agregar servicios FPM para versiones realmente instaladas
+        for version in php_versions_detected:
+            service_name = f'php{version}-fpm'
+            if service_name not in services_added:
+                logger.info(f"Agregando servicio {service_name}...")
                 status = self.get_status(service_name)
                 statuses.append(status)
+                services_added.add(service_name)
         
+        logger.info(f"Total de servicios detectados: {len(statuses)}")
         return statuses
     
+    def _service_exists(self, service_name: str) -> bool:
+        """
+        Verifica si un servicio existe en el sistema.
+        
+        Args:
+            service_name: Nombre del servicio
+            
+        Returns:
+            True si el servicio existe
+        """
+        try:
+            if self.method == 'systemctl' and self.systemctl:
+                cmd = [self.systemctl, 'list-unit-files', f'{service_name}.service']
+                logger.debug(f"Verificando existencia de {service_name}: {' '.join(cmd)}")
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+                exists = f'{service_name}.service' in result.stdout
+                logger.debug(f"{service_name} existe: {exists}")
+                return exists
+            elif self.method == 'service' and self.service_cmd:
+                cmd = [self.service_cmd, '--status-all']
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+                return service_name in result.stdout
+            elif self.method == 'invoke-rc.d' and self.invoke_rc:
+                cmd = [self.invoke_rc, service_name, 'status']
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+                return result.returncode != 127  # 127 = command not found
+            else:
+                logger.debug(f"No hay método disponible para verificar {service_name}")
+        except Exception as e:
+            logger.debug(f"Error verificando existencia de {service_name}: {e}")
+        return False
+    
+    def manage_all_services(self, action: str, services: List[str]) -> tuple[bool, str]:
+        """
+        Ejecuta una acción (start/stop/restart) en múltiples servicios con una sola llamada a pkexec.
+        
+        Args:
+            action: Acción a realizar ('start', 'stop', 'restart')
+            services: Lista de nombres de servicios
+            
+        Returns:
+            Tupla (éxito, mensaje)
+        """
+        if not self.method:
+            return False, "No hay gestor de servicios disponible"
+            
+        if not services:
+            return False, "No hay servicios seleccionados"
+            
+        try:
+            # Construir comando compuesto
+            commands = []
+            
+            if self.method == 'systemctl':
+                # systemctl permite múltiples servicios en un comando: systemctl start s1 s2 s3
+                cmd = ['pkexec', self.systemctl, action] + services
+                
+            elif self.method == 'service':
+                # service requiere un comando por servicio: service s1 start && service s2 start
+                shell_cmd = " && ".join([f"{self.service_cmd} {svc} {action}" for svc in services])
+                cmd = ['pkexec', 'sh', '-c', shell_cmd]
+                
+            elif self.method == 'invoke-rc.d':
+                shell_cmd = " && ".join([f"{self.invoke_rc} {svc} {action}" for svc in services])
+                cmd = ['pkexec', 'sh', '-c', shell_cmd]
+            
+            logger.info(f"Ejecutando acción masiva '{action}': {' '.join(cmd)}")
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+            
+            if result.returncode == 0:
+                logger.info(f"✓ Acción '{action}' completada para todos los servicios")
+                return True, f"Acción '{action}' completada correctamente"
+            else:
+                error_msg = result.stderr.strip() or "Error desconocido"
+                if "Authentication cancelled" in error_msg or "not authorized" in error_msg:
+                    return False, "Autenticación cancelada"
+                return False, f"Error: {error_msg}"
+                
+        except Exception as e:
+            logger.error(f"Error en acción masiva '{action}': {e}")
+            return False, str(e)
+
     def start_service(self, service_name: str) -> tuple[bool, str]:
         """
         Inicia un servicio usando pkexec.

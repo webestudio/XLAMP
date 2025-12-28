@@ -1,5 +1,5 @@
 """
-LAMP Manager - Stack Detector
+XLAMP Manager - Stack Detector
 Detección automática de componentes del stack LAMP instalados.
 """
 

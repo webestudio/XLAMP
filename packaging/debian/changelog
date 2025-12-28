@@ -1,3 +1,11 @@
+xlamp (1.0.2) stable; urgency=medium
+
+  * Corrección: DirectoryIndex ahora prioriza index.php correctamente
+  * Mejora en configuración de virtual hosts
+  * Apache ahora busca index.php antes que index.html
+
+ -- Jorge <tu-email@example.com>  Thu, 26 Dec 2025 12:00:00 -0400
+
 xlamp (1.0.0) stable; urgency=medium
 
   * Initial release

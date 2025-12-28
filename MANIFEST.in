@@ -10,6 +10,8 @@ include install_polkit_rules.sh
 recursive-include resources *
 recursive-include data *
 recursive-include scripts *
+recursive-include src/ui *.css
+recursive-include src/ui *.ui
 
 # Excluir archivos innecesarios
 exclude diagnose_php.py

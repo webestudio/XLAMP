@@ -1,5 +1,5 @@
 """
-LAMP Manager - Database module
+XLAMP Manager - Database module
 Gestión de la base de datos SQLite para configuraciones.
 """
 
@@ -177,144 +177,11 @@ class Database:
             VALUES (?, ?, ?, ?)
         """, (operation, component, status, message))
     
-    def get_config(self, key: str) -> Optional[str]:
-        """Obtiene un valor de configuración."""
-        result = self.fetch_one("SELECT value FROM app_config WHERE key = ?", (key,))
-        return result['value'] if result else None
-    
-    def set_config(self, key: str, value: str) -> None:
-        """Establece un valor de configuración."""
-        self.execute("""
-            INSERT OR REPLACE INTO app_config (key, value, updated_at)
-            VALUES (?, ?, CURRENT_TIMESTAMP)
-        """, (key, value))
-    
-    def add_vhost(self, vhost: 'VirtualHost') -> int:
-        """
-        Agrega un host virtual a la base de datos.
-        
-        Args:
-            vhost: Objeto VirtualHost
-            
-        Returns:
-            ID del vhost insertado
-        """
-        cursor = self.execute("""
-            INSERT INTO vhosts (name, document_root, server_name, port, php_version, enabled, ssl_enabled, ssl_cert_path, ssl_key_path)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            vhost.name,
-            vhost.document_root,
-            vhost.server_name,
-            vhost.port,
-            vhost.php_version,
-            int(vhost.enabled),
-            int(vhost.ssl_enabled),
-            vhost.ssl_cert_path,
-            vhost.ssl_key_path
-        ))
-        return cursor.lastrowid
-    
-    def get_all_vhosts(self) -> list['VirtualHost']:
-        """
-        Obtiene todos los hosts virtuales.
-        
-        Returns:
-            Lista de objetos VirtualHost
-        """
-        from .models import VirtualHost
-        from datetime import datetime
-        
-        rows = self.fetch_all("SELECT * FROM vhosts ORDER BY name")
-        vhosts = []
-        
-        for row in rows:
-            vhost = VirtualHost(
-                id=row['id'],
-                name=row['name'],
-                document_root=row['document_root'],
-                server_name=row['server_name'],
-                port=row['port'],
-                php_version=row['php_version'],
-                enabled=bool(row['enabled']),
-                ssl_enabled=bool(row['ssl_enabled']),
-                ssl_cert_path=row['ssl_cert_path'],
-                ssl_key_path=row['ssl_key_path'],
-                created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
-                updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else None
-            )
-            vhosts.append(vhost)
-        
-        return vhosts
-    
-    def get_vhost(self, vhost_id: int) -> Optional['VirtualHost']:
-        """
-        Obtiene un host virtual por ID.
-        
-        Args:
-            vhost_id: ID del vhost
-            
-        Returns:
-            Objeto VirtualHost o None
-        """
-        from .models import VirtualHost
-        from datetime import datetime
-        
-        row = self.fetch_one("SELECT * FROM vhosts WHERE id = ?", (vhost_id,))
-        
-        if not row:
-            return None
-        
-        return VirtualHost(
-            id=row['id'],
-            name=row['name'],
-            document_root=row['document_root'],
-            server_name=row['server_name'],
-            port=row['port'],
-            php_version=row['php_version'],
-            enabled=bool(row['enabled']),
-            ssl_enabled=bool(row['ssl_enabled']),
-            ssl_cert_path=row['ssl_cert_path'],
-            ssl_key_path=row['ssl_key_path'],
-            created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
-            updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else None
-        )
-    
-    def update_vhost(self, vhost: 'VirtualHost') -> None:
-        """
-        Actualiza un host virtual.
-        
-        Args:
-            vhost: Objeto VirtualHost con datos actualizados
-        """
-        self.execute("""
-            UPDATE vhosts
-            SET name = ?, document_root = ?, server_name = ?, port = ?, php_version = ?,
-                enabled = ?, ssl_enabled = ?, ssl_cert_path = ?, ssl_key_path = ?,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        """, (
-            vhost.name,
-            vhost.document_root,
-            vhost.server_name,
-            vhost.port,
-            vhost.php_version,
-            int(vhost.enabled),
-            int(vhost.ssl_enabled),
-            vhost.ssl_cert_path,
-            vhost.ssl_key_path,
-            vhost.id
-        ))
-    
-    def delete_vhost(self, vhost_id: int) -> None:
-        """
-        Elimina un host virtual.
-        
-        Args:
-            vhost_id: ID del vhost a eliminar
-        """
-        self.execute("DELETE FROM vhosts WHERE id = ?", (vhost_id,))
-    
+
+
+
+
+
     def close(self) -> None:
         """Cierra la conexión a la base de datos."""
         if self.conn:

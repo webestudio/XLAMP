@@ -1,16 +1,16 @@
 #!/bin/bash
-# Script para instalar reglas de PolicyKit para LAMP Manager
+# Script para instalar reglas de PolicyKit para XLAMP Manager
 # Esto evitará solicitudes repetidas de contraseña
 
 set -e
 
-echo "=== Instalando reglas de PolicyKit para LAMP Manager ==="
+echo "=== Instalando reglas de PolicyKit para XLAMP Manager ==="
 
 # Crear regla de PolicyKit
 POLKIT_RULE="/etc/polkit-1/rules.d/50-lamp-manager.rules"
 
-cat > /tmp/lamp-manager.rules << 'EOF'
-// Reglas de PolicyKit para LAMP Manager
+cat > /tmp/xlamp-manager.rules << 'EOF'
+// Reglas de PolicyKit para XLAMP Manager
 // Permite operaciones de Apache y systemctl sin solicitar contraseña repetidamente
 
 polkit.addRule(function(action, subject) {

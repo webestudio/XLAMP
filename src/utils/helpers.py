@@ -1,5 +1,5 @@
 """
-LAMP Manager - Utilities
+XLAMP Manager - Utilities
 Funciones de utilidad general.
 """
 

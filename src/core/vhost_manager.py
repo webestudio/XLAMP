@@ -1,11 +1,12 @@
 """
-LAMP Manager - Virtual Host Manager
+XLAMP Manager - Virtual Host Manager
 Gestión de hosts virtuales con terminación .test
 """
 
 import os
 import logging
 import subprocess
+import pwd
 from typing import List, Tuple, Optional
 from pathlib import Path
 from data.models import VirtualHost
@@ -64,63 +65,18 @@ class VHostManager:
         """
         try:
             # Normalizar nombre de dominio
+            username = pwd.getpwuid(os.getuid()).pw_name
             domain = vhost.server_name
             if not domain.endswith(self.DEFAULT_DOMAIN_SUFFIX):
                 domain = f"{domain}{self.DEFAULT_DOMAIN_SUFFIX}"
             
             vhost.server_name = domain
             vhost.document_root = os.path.abspath(document_root)
-            
             # Crear directorio del sitio si no existe
             if not os.path.exists(vhost.document_root):
                 logger.info(f"Creando directorio: {vhost.document_root}")
                 
-                # Obtener usuario actual
-                import pwd
-                username = pwd.getpwuid(os.getuid()).pw_name
-                
-                # Crear script temporal que agrupa todas las operaciones administrativas
-                import tempfile
-                script_content = f"""#!/bin/bash
-set -e
-
-# Crear directorio
-mkdir -p "{vhost.document_root}"
-
-# Cambiar propietario
-chown -R {username}:{username} "{vhost.document_root}"
-
-# Permisos
-chmod -R 755 "{vhost.document_root}"
-
-echo "Directorio creado correctamente"
-"""
-                
-                with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.sh') as script_file:
-                    script_file.write(script_content)
-                    script_path = script_file.name
-                
-                # Dar permisos de ejecución al script
-                os.chmod(script_path, 0o755)
-                
-                try:
-                    # Ejecutar script con una sola solicitud de pkexec
-                    create_cmd = self._build_command(['pkexec', 'bash', script_path])
-                    result = subprocess.run(create_cmd, capture_output=True, text=True, timeout=60)
-                    
-                    if result.returncode != 0:
-                        return False, f"Error creando directorio: {result.stderr}"
-                    
-                    logger.info(f"Directorio {vhost.document_root} creado con permisos correctos")
-                    
-                finally:
-                    # Limpiar script temporal
-                    try:
-                        os.unlink(script_path)
-                    except:
-                        pass
-                
-                # Crear index.php de prueba (ahora tenemos permisos)
+                # Preparar contenido de index.php
                 index_file = os.path.join(vhost.document_root, 'index.php')
                 index_content = f"""<?php
 /**
@@ -136,28 +92,32 @@ echo "Directorio creado correctamente"
     <title>✓ {domain} - Funcionando</title>
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; padding: 20px; }}
-        .container {{ max-width: 900px; margin: 0 auto; background: white; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden; }}
-        .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 40px; text-align: center; }}
-        .header h1 {{ font-size: 2.5em; margin-bottom: 10px; }}
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background-color: #f8fafc; color: #434B4D; min-height: 100vh; padding: 20px; }}
+        .container {{ max-width: 900px; margin: 0 auto; background: white; border-radius: 8px; border: 1px solid #e2e8f0; overflow: hidden; }}
+        .header {{ background-color: #20B2AA; color: white; padding: 30px; text-align: center; }}
+        .header h1 {{ font-size: 2em; margin-bottom: 10px; font-weight: 600; }}
         .header p {{ opacity: 0.9; font-size: 1.1em; }}
-        .content {{ padding: 40px; }}
+        .content {{ padding: 30px; }}
         .section {{ margin-bottom: 30px; }}
-        .section h2 {{ color: #667eea; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid #e5e7eb; }}
+        .section h2 {{ color: #20B2AA; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid #e5e7eb; font-size: 1.5em; }}
         .info-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; margin: 20px 0; }}
-        .info-card {{ background: #f9fafb; padding: 20px; border-radius: 8px; border-left: 4px solid #667eea; }}
-        .info-card strong {{ color: #374151; display: block; margin-bottom: 5px; }}
+        .info-card {{ background: #f9fafb; padding: 15px; border-radius: 6px; border: 1px solid #e5e7eb; border-left: 4px solid #20B2AA; }}
+        .info-card strong {{ color: #434B4D; display: block; margin-bottom: 5px; }}
         .info-card span {{ color: #6b7280; font-family: 'Courier New', monospace; font-size: 0.9em; }}
-        .path-list {{ background: #f9fafb; padding: 20px; border-radius: 8px; margin: 15px 0; }}
-        .path-list li {{ margin: 10px 0; padding: 10px; background: white; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 0.9em; }}
-        .path-list li strong {{ color: #667eea; }}
-        .tips {{ background: #fef3c7; border-left: 4px solid #f59e0b; padding: 20px; border-radius: 8px; margin: 20px 0; }}
-        .tips h3 {{ color: #f59e0b; margin-bottom: 10px; }}
+        .path-list {{ background: #f9fafb; padding: 20px; border-radius: 6px; border: 1px solid #e5e7eb; margin: 15px 0; }}
+        .path-list li {{ margin: 8px 0; padding: 8px; background: white; border: 1px solid #e5e7eb; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 0.9em; }}
+        .path-list li strong {{ color: #20B2AA; }}
+        .tips {{ background: #f0fdfa; border-left: 4px solid #20B2AA; padding: 20px; border-radius: 6px; margin: 20px 0; }}
+        .tips h3 {{ color: #20B2AA; margin-bottom: 10px; }}
         .tips ul {{ margin-left: 20px; }}
-        .tips li {{ margin: 8px 0; color: #78350f; }}
+        .tips li {{ margin: 8px 0; color: #434B4D; }}
         code {{ background: #e5e7eb; padding: 2px 6px; border-radius: 3px; font-family: 'Courier New', monospace; color: #be123c; }}
-        .success {{ color: #10b981; }}
-        .footer {{ text-align: center; padding: 20px; color: #6b7280; border-top: 1px solid #e5e7eb; }}
+        .success {{ color: #20B2AA; }}
+        .footer {{ text-align: center; padding: 20px; color: #6b7280; border-top: 1px solid #e5e7eb; font-size: 0.9em; }}
+        .tools-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 15px; }}
+        .tool-card {{ background: white; border: 1px solid #e2e8f0; padding: 15px; border-radius: 6px; text-align: center; }}
+        .tool-card h4 {{ color: #20B2AA; margin-bottom: 5px; }}
+        .tool-card p {{ font-size: 0.9em; color: #64748b; }}
     </style>
 </head>
 <body>
@@ -186,6 +146,29 @@ echo "Directorio creado correctamente"
                     <div class="info-card">
                         <strong>Dominio</strong>
                         <span>{domain}</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>🛠️ Herramientas Disponibles</h2>
+                <p>Gestiona tu entorno desde XLAMP Manager:</p>
+                <div class="tools-grid">
+                    <div class="tool-card">
+                        <h4>Apache</h4>
+                        <p>Servidor Web</p>
+                    </div>
+                    <div class="tool-card">
+                        <h4>PHP-FPM</h4>
+                        <p>Procesador PHP</p>
+                    </div>
+                    <div class="tool-card">
+                        <h4>MariaDB / MySQL</h4>
+                        <p>Base de Datos</p>
+                    </div>
+                    <div class="tool-card">
+                        <h4>VHost Manager</h4>
+                        <p>Gestión de Dominios</p>
                     </div>
                 </div>
             </div>
@@ -249,26 +232,71 @@ echo "Directorio creado correctamente"
         </div>
         
         <div class="footer">
-            <p>Creado con LAMP Manager • {domain}</p>
+            <p>Creado con XLAMP Manager • {domain}</p>
         </div>
     </div>
 </body>
 </html>
 """
                 
-                # Escribir index.php (ahora tenemos permisos)
+                import tempfile
+                # Escribir contenido a archivo temporal
+                with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.php') as tmp_index:
+                    tmp_index.write(index_content)
+                    tmp_index_path = tmp_index.name
+
+                # Crear script temporal que agrupa todas las operaciones administrativas
+                script_content = f"""#!/bin/bash
+set -e
+
+# Crear directorio
+mkdir -p "{vhost.document_root}"
+
+# Copiar index.php desde temporal
+cp "{tmp_index_path}" "{vhost.document_root}/index.php"
+
+# Propietario www-data (lo usa PHP-FPM), grupo del usuario para poder editar
+chown -R www-data:{username} "{vhost.document_root}"
+
+# Permisos: directorios 755, archivos 644 (lectura para todos)
+find "{vhost.document_root}" -type d -exec chmod 755 {{}} \;
+find "{vhost.document_root}" -type f -exec chmod 644 {{}} \;
+
+echo "Directorio y archivo index.php creados correctamente"
+"""
+                
+                with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.sh') as script_file:
+                    script_file.write(script_content)
+                    script_path = script_file.name
+                
+                # Dar permisos de ejecución al script
+                os.chmod(script_path, 0o755)
+                
                 try:
-                    with open(index_file, 'w') as f:
-                        f.write(index_content)
-                    logger.info(f"Creado index.php en {index_file}")
-                except Exception as e:
-                    logger.warning(f"No se pudo crear index.php: {e}")
+                    # Ejecutar script con una sola solicitud de pkexec
+                    create_cmd = self._build_command(['pkexec', 'bash', script_path])
+                    result = subprocess.run(create_cmd, capture_output=True, text=True, timeout=60)
+                    
+                    if result.returncode != 0:
+                        return False, f"Error creando directorio: {result.stderr}"
+                    
+                    logger.info(f"Directorio {vhost.document_root} creado con permisos correctos (www-data:{username} dirs 775 / files 664)")
+                    
+                finally:
+                    # Limpiar archivos temporales
+                    try:
+                        os.unlink(script_path)
+                        os.unlink(tmp_index_path)
+                    except:
+                        pass
             
             # Generar configuración Apache
             config_content = self._generate_apache_config(vhost)
             
             # Guardar configuración
-            config_filename = f"{vhost.name}.conf"
+            # Sanitizar nombre: reemplazar espacios y caracteres problemáticos
+            safe_name = vhost.name.replace(' ', '_').replace('/', '_').replace('\\', '_')
+            config_filename = f"{safe_name}.conf"
             config_path = os.path.join(self.VHOST_DIR, config_filename)
             
             # Crear archivo temporal con la configuración
@@ -294,21 +322,14 @@ a2enmod proxy 2>&1 || true
 a2enmod proxy_fcgi 2>&1 || true
 a2enmod rewrite 2>&1 || true
 
-# Habilitar sitio
-a2ensite "{config_filename}" 2>&1 || true
-
-# Iniciar PHP-FPM si está instalado
-if [ -f /lib/systemd/system/php{vhost.php_version}-fpm.service ]; then
-    echo "Iniciando PHP {vhost.php_version} FPM..."
-    systemctl enable php{vhost.php_version}-fpm 2>&1 || true
-    systemctl start php{vhost.php_version}-fpm 2>&1 || systemctl restart php{vhost.php_version}-fpm 2>&1 || true
-    echo "✓ PHP {vhost.php_version} FPM iniciado"
-fi
+# Habilitar sitio (sin extensión .conf)
+SITE_NAME="{safe_name}"
+a2ensite "$SITE_NAME" 2>&1 || true
 
 # Agregar a /etc/hosts si no existe
 if ! grep -q "{hosts_entry}" /etc/hosts; then
     echo "" >> /etc/hosts
-    echo "# LAMP Manager - {domain}" >> /etc/hosts
+    echo "# XLAMP Manager - {domain}" >> /etc/hosts
     echo "{hosts_entry}" >> /etc/hosts
     echo "✓ Agregado {domain} a /etc/hosts"
 fi
@@ -353,6 +374,27 @@ echo "✓ Host virtual configurado correctamente"
                 except:
                     pass
             
+            # Iniciar PHP-FPM usando ServiceManager si se especificó versión
+            if vhost.php_version:
+                try:
+                    from core.service_manager import ServiceManager
+                    service_mgr = ServiceManager()
+                    php_service = f"php{vhost.php_version}-fpm"
+                    
+                    # Verificar si el servicio está corriendo
+                    status = service_mgr.get_status(php_service)
+                    if not status.is_active:
+                        logger.info(f"Iniciando {php_service}...")
+                        success, msg = service_mgr.start(php_service)
+                        if success:
+                            logger.info(f"✓ {php_service} iniciado correctamente")
+                        else:
+                            logger.warning(f"No se pudo iniciar {php_service}: {msg}")
+                    else:
+                        logger.info(f"✓ {php_service} ya está activo")
+                except Exception as e:
+                    logger.warning(f"No se pudo verificar/iniciar PHP-FPM: {e}")
+            
             logger.info(f"✓ Host virtual '{domain}' creado correctamente")
             return True, f"Host virtual '{domain}' creado correctamente"
             
@@ -373,13 +415,15 @@ echo "✓ Host virtual configurado correctamente"
         """
         php_config = ""
         if vhost.php_version:
+            # Usar socket genérico php-fpm.sock (apunta al FPM activo)
+            socket_path = "/run/php/php-fpm.sock"
             # Configuración híbrida: intenta PHP-FPM primero, fallback a mod_php
             php_config = f"""
     # PHP {vhost.php_version} - Configuración híbrida
     <IfModule mod_proxy_fcgi.c>
         # PHP-FPM (preferido)
         <FilesMatch \\.php$>
-            SetHandler "proxy:unix:/run/php/php{vhost.php_version}-fpm.sock|fcgi://localhost"
+            SetHandler "proxy:unix:{socket_path}|fcgi://localhost"
         </FilesMatch>
     </IfModule>
     
@@ -389,15 +433,15 @@ echo "✓ Host virtual configurado correctamente"
             SetHandler application/x-httpd-php
         </FilesMatch>
     </IfModule>
-    
-    # Índices
-    DirectoryIndex index.php index.html index.htm
 """
         
         config = f"""<VirtualHost *:{vhost.port}>
     ServerName {vhost.server_name}
     ServerAdmin webmaster@{vhost.server_name}
     DocumentRoot {vhost.document_root}
+    
+    # DirectoryIndex debe estar SIEMPRE, priorizando PHP
+    DirectoryIndex index.php index.html index.htm
     
     <Directory {vhost.document_root}>
         Options Indexes FollowSymLinks
@@ -416,6 +460,9 @@ echo "✓ Host virtual configurado correctamente"
     ServerName {vhost.server_name}
     ServerAdmin webmaster@{vhost.server_name}
     DocumentRoot {vhost.document_root}
+    
+    # DirectoryIndex debe estar SIEMPRE, priorizando PHP
+    DirectoryIndex index.php index.html index.htm
     
     SSLEngine on
     SSLCertificateFile {vhost.ssl_cert_path}
@@ -460,7 +507,7 @@ echo "✓ Host virtual configurado correctamente"
                 return True, "Dominio ya existe en /etc/hosts"
             
             # Agregar nueva entrada
-            new_entry = f"\n# LAMP Manager - {domain}\n127.0.0.1\t{domain}\n"
+            new_entry = f"\n# XLAMP Manager - {domain}\n127.0.0.1\t{domain}\n"
             new_content = hosts_content + new_entry
             
             # Escribir con pkexec
@@ -570,8 +617,8 @@ echo "✓ Host virtual configurado correctamente"
             skip_next = False
             
             for line in lines:
-                # Saltar comentario LAMP Manager y línea del dominio
-                if f"# LAMP Manager - {domain}" in line:
+                # Saltar comentario XLAMP Manager y línea del dominio
+                if f"# XLAMP Manager - {domain}" in line:
                     skip_next = True
                     continue
                 if skip_next and domain in line:

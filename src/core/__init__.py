@@ -1,5 +1,5 @@
 """
-LAMP Manager - Core package
+XLAMP Manager - Core package
 """
 
 from .stack_detector import StackDetector

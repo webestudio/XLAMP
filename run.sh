@@ -1,7 +1,7 @@
 #!/bin/bash
 # Script de inicio rápido para desarrollo
 
-echo "Iniciando LAMP Manager..."
+echo "Iniciando XLAMP Manager..."
 
 # Verificar que estemos en el directorio correcto
 if [ ! -f "src/main.py" ]; then
@@ -16,7 +16,7 @@ VENV_DIR=".venv"
 echo "Verificando dependencias..."
 python3 -c "import gi; import psutil" 2>/dev/null
 if [ $? -ne 0 ]; then
-    echo "⚠️  Faltan dependencias de Python"
+    echo "Error: Faltan dependencias de Python"
     
     # Crear entorno virtual si no existe
     if [ ! -d "$VENV_DIR" ]; then
@@ -24,7 +24,7 @@ if [ $? -ne 0 ]; then
         python3 -m venv "$VENV_DIR"
         if [ $? -ne 0 ]; then
             echo ""
-            echo "❌ No se pudo crear el entorno virtual"
+            echo "No se pudo crear el entorno virtual"
             echo ""
             echo "Por favor, instala python3-venv:"
             echo "  sudo apt install python3-venv python3-psutil python3-dotenv python3-jinja2 python3-gi"
@@ -44,7 +44,7 @@ if [ $? -ne 0 ]; then
     
     if [ $? -ne 0 ]; then
         echo ""
-        echo "❌ Error al instalar dependencias"
+        echo "Error al instalar dependencias"
         echo ""
         echo "Instala las dependencias del sistema:"
         echo "  sudo apt install python3-venv python3-psutil python3-dotenv python3-jinja2 python3-gi"
@@ -59,9 +59,9 @@ fi
 mkdir -p data logs backups
 
 # Ejecutar aplicación (usando venv si existe)
-cd src
-if [ -d "../$VENV_DIR" ] && [ -f "../$VENV_DIR/bin/python3" ]; then
-    exec "../$VENV_DIR/bin/python3" main.py
+# Usar -m para ejecutar como módulo, no como script directo
+if [ -d "$VENV_DIR" ] && [ -f "$VENV_DIR/bin/python3" ]; then
+    exec "$VENV_DIR/bin/python3" -m src.main
 else
-    exec python3 main.py
+    exec python3 -m src.main
 fi

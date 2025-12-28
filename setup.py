@@ -17,13 +17,13 @@ with open('requirements.txt') as f:
 
 setup(
     name='xlamp',
-    version='1.0.0',
+    version='1.0.3',
     description='LAMP Stack Manager - Gestión completa del stack LAMP para Linux',
     long_description=long_description,
     long_description_content_type='text/markdown',
-    author='Jorge',
-    author_email='',
-    url='https://github.com/tu-usuario/xlamp',
+    author='Jorge Bravo',
+    author_email='contact@jorgebravo.info',
+    url='https://github.com/webestudio/xlamp',
     license='MIT',
     
     packages=find_packages(),
@@ -33,6 +33,8 @@ setup(
     package_data={
         'src': [
             'data/*.db',
+            'ui/*.css',
+            'ui/*.ui',
         ],
         '': [
             'icon.png',
@@ -79,7 +81,7 @@ setup(
     
     # Metadata adicional
     project_urls={
-        'Bug Reports': 'https://github.com/tu-usuario/xlamp/issues',
-        'Source': 'https://github.com/tu-usuario/xlamp',
+        'Bug Reports': 'https://github.com/webestudio/xlamp/issues',
+        'Source': 'https://github.com/webestudio/xlamp',
     },
 )

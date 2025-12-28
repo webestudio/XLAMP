@@ -1,5 +1,5 @@
 """
-LAMP Manager - Install Dialog
+XLAMP Manager - Install Dialog
 Diálogo de instalación de componentes del stack.
 """
 

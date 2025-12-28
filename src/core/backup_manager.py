@@ -1,5 +1,5 @@
 """
-LAMP Manager - Backup Manager
+XLAMP Manager - Backup Manager
 Gestión de copias de seguridad de bases de datos y configuraciones.
 """
 

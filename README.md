@@ -1,4 +1,4 @@
-# LAMP Manager
+# XLAMP Manager
 
 Aplicación GUI para gestionar el stack LAMP en Linux con soporte Flatpak.
 

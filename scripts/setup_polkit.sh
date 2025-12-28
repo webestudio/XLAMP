@@ -39,4 +39,4 @@ cat > "$POLICY_FILE" << 'EOF'
 EOF
 
 echo "PolicyKit policy created at $POLICY_FILE"
-echo "LAMP Manager can now use pkexec for privileged operations"
+echo "XLAMP Manager can now use pkexec for privileged operations"
